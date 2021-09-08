@@ -1,0 +1,13 @@
+fun foo(a) {
+	if (a == 0) {
+		return "Hello";
+	} else {
+		return 2;
+	}
+}
+
+var a = foo(0);
+var b = 24;
+var c = foo;
+
+print a / (b + c);

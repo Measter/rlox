@@ -1,0 +1,3 @@
+var bar = "hello";
+
+print bar + foo;

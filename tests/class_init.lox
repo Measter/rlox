@@ -1,0 +1,8 @@
+class Test {
+    init() {
+        return;
+    }
+}
+
+var test = Test();
+print test;

@@ -1,0 +1,18 @@
+fun bar() {
+	return 2;
+}
+
+fun baz() {
+	return "quux";
+}
+
+fun foo(a) {
+	if (a == 0) {
+		return bar;
+	} else {
+		return baz;
+	}
+}
+
+print foo(0)();
+print foo(1)();
