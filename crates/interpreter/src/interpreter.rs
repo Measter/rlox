@@ -182,7 +182,10 @@ impl Interpreter {
         self.nest_scope();
         for statement in statements {
             match self.evaluate_statement(statement, emitter, interner) {
-                Ok(Some(obj)) => return Ok(Some(obj)),
+                Ok(Some(obj)) => {
+                    self.pop_scope();
+                    return Ok(Some(obj));
+                }
                 Ok(None) => {}
                 Err(diag) => {
                     self.pop_scope();
