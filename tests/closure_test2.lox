@@ -1,0 +1,18 @@
+var closure;
+var a = 3;
+var b = 0;
+
+{
+	var b = 5;
+	fun increment() {
+		b = b + 1;
+		a = a + 1;
+	}
+	
+	closure = increment;
+}
+
+a = a + 1;
+closure();
+print a;
+print b;
