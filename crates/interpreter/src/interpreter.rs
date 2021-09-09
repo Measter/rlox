@@ -414,7 +414,7 @@ impl Interpreter {
             callee
         } else {
             let diag = Diagnostic::error()
-                .with_message("Can only call functions and classes")
+                .with_message("can only call functions and classes")
                 .with_labels(vec![
                     Label::primary(callee.source_id(), source_range),
                     Label::secondary(callee.source_id(), callee.source_range())

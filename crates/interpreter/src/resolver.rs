@@ -281,7 +281,7 @@ impl<'a> Resolver<'a> {
             Expression::This { keyword, id } => {
                 if self.current_class == ClassType::None {
                     let diag = Diagnostic::error()
-                        .with_message("Can't use `this` outside of a class")
+                        .with_message("can't use `this` outside of a class")
                         .with_labels(vec![Label::primary(
                             keyword.source_id,
                             keyword.source_range(),
