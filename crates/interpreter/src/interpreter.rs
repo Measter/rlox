@@ -79,8 +79,12 @@ impl Interpreter {
     }
 
     fn pop_scope(&mut self) {
-        let env = self.environment.take();
-        self.environment = env.into_parent().expect("attempted to pop global scope");
+        self.environment = {
+            let env = self.environment.borrow();
+            env.parent()
+                .map(Clone::clone)
+                .expect("ICE: attempted to pop global scope")
+        };
     }
 
     pub fn resolve(&mut self, expr_id: ExpressionId, depth: usize) {

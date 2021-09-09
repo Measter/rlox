@@ -156,8 +156,8 @@ impl Environment {
         }
     }
 
-    pub fn into_parent(self) -> Option<Rc<RefCell<Environment>>> {
-        self.parent
+    pub fn parent(&self) -> Option<&Rc<RefCell<Environment>>> {
+        self.parent.as_ref()
     }
 
     pub fn define(&mut self, name: Token, expression_range: Option<Range<usize>>, value: Object) {
