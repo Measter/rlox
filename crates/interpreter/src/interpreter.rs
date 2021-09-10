@@ -328,8 +328,12 @@ impl Interpreter {
                     LoxClassInstance::get(&instance, *name, interner)
                 } else {
                     let diag = Diagnostic::error()
-                        .with_message("only instances have properties")
-                        .with_labels(vec![Label::primary(name.source_id, name.source_range())]);
+                        .with_message("only class instances have properties")
+                        .with_labels(vec![
+                            Label::primary(name.source_id, name.source_range()),
+                            Label::secondary(object.source_id(), object.source_range())
+                                .with_message(obj.kind()),
+                        ]);
 
                     Err(diag)
                 }
@@ -356,8 +360,12 @@ impl Interpreter {
                     Ok(value)
                 } else {
                     let diag = Diagnostic::error()
-                        .with_message("only instances have properites")
-                        .with_labels(vec![Label::primary(name.source_id, name.source_range())]);
+                        .with_message("only class instances have properties")
+                        .with_labels(vec![
+                            Label::primary(name.source_id, name.source_range()),
+                            Label::secondary(object.source_id(), object.source_range())
+                                .with_message(obj.kind()),
+                        ]);
 
                     Err(diag)
                 }
