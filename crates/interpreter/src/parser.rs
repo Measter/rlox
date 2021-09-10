@@ -17,7 +17,7 @@ type ParseResult<T> = Result<T, Diagnostic<FileId>>;
 //                | funDecl
 //                | varDecl
 //                | statement ;
-// classDecl      → "class" IDENTIER "{" function* "}" ;
+// classDecl      → "class" IDENTIER ( "<" IDENTIFIER )? "{" function* "}" ;
 // funDecl        → "fun" function ;
 // function       → IDENTIFIER "(" paramaters? ")" block ;
 // parameters     → IDENTIFIER ( "," IDENTIFIER )* ;
@@ -52,7 +52,8 @@ type ParseResult<T> = Result<T, Diagnostic<FileId>>;
 // call           → primary ( "(" arguments? ")" | "." IDENTIFIER )* ;
 // arguments      → expression ( "," expression )* ;
 // primary        → NUMBER | STRING | "true" | "false" | "nil"
-//                | "(" expression ")" | IDENTIFIER;
+//                | "(" expression ")" | IDENTIFIER
+//                | "super" "." IDENTIFIER ;
 
 pub struct ParseSuccess {
     pub program: Vec<Statement>,
@@ -127,6 +128,15 @@ impl<'collection, 'interner> Parser<'collection, 'interner> {
     fn class_declaration(&mut self) -> ParseResult<Statement> {
         let class_token = self.previous();
         let name = self.expect(TokenKind::Identifier, "ident", Vec::new)?;
+
+        let superclass = self
+            .matches(|k| k == TokenKind::Less)
+            .map(|_| {
+                let super_name = self.expect(TokenKind::Identifier, "ident", Vec::new)?;
+                Ok(Expression::variable(super_name, self.expression_id()))
+            })
+            .transpose()?;
+
         let left_brace = self.expect(TokenKind::LeftBrace, "`{`}", Vec::new)?;
 
         let mut methods = Vec::new();
@@ -159,6 +169,7 @@ impl<'collection, 'interner> Parser<'collection, 'interner> {
             name,
             methods,
             source_range,
+            superclass,
         })
     }
 
@@ -620,6 +631,21 @@ impl<'collection, 'interner> Parser<'collection, 'interner> {
                 Ok(Expression::grouping(expr, range, self.expression_id()))
             }
             TokenKind::This => Ok(Expression::this(next_token, self.expression_id())),
+            TokenKind::Super => {
+                self.expect(TokenKind::Dot, "`.`", Vec::new)?;
+                let method = self.expect(TokenKind::Identifier, "ident", || {
+                    vec![
+                        Label::secondary(next_token.source_id, next_token.source_range())
+                            .with_message("superclass method expected"),
+                    ]
+                })?;
+
+                Ok(Expression::super_keyword(
+                    next_token,
+                    method,
+                    self.expression_id(),
+                ))
+            }
             kind => {
                 let msg = match kind {
                     k if k.is_keyword() => "keyword ",

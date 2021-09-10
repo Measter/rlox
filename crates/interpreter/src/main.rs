@@ -49,6 +49,7 @@ impl<'a> DiagnosticEmitter<'a> {
 
         Ok(())
     }
+
     fn emit_diagnostics(&mut self, diags: &[Diagnostic<FileId>]) -> Result<()> {
         diags.iter().try_for_each(|d| self.emit_diagnostic(d))?;
 
@@ -72,6 +73,7 @@ fn main() -> Result<()> {
     // These two are used when instantiating a class.
     interner.get_or_intern_static("this");
     interner.get_or_intern_static("init");
+    interner.get_or_intern_static("super");
     let mut interpreter = Interpreter::new(&mut interner);
 
     for file in args {

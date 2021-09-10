@@ -36,6 +36,7 @@ enum FunctionType {
 enum ClassType {
     None,
     Class,
+    SubClass,
 }
 
 pub struct Resolver<'a> {
@@ -132,10 +133,16 @@ impl<'a> Resolver<'a> {
                 self.resolve(statements)?;
                 self.end_scope();
             }
-            Statement::Class { name, methods, .. } => {
+            Statement::Class {
+                name,
+                methods,
+                superclass,
+                ..
+            } => {
                 self.declare(*name)?;
                 self.define(*name);
-                self.resolve_class(methods)?;
+
+                self.resolve_class(*name, superclass.as_ref(), methods)?;
             }
             Statement::Expression(expr) | Statement::Print(expr) => {
                 self.resolve_expression(expr)?
@@ -198,8 +205,49 @@ impl<'a> Resolver<'a> {
         Ok(())
     }
 
-    fn resolve_class(&mut self, methods: &[Rc<Function>]) -> ResolveResult {
+    fn resolve_class(
+        &mut self,
+        name: Token,
+        superclass: Option<&Expression>,
+        methods: &[Rc<Function>],
+    ) -> ResolveResult {
         let enclosing_class = std::mem::replace(&mut self.current_class, ClassType::Class);
+        match superclass.as_ref() {
+            Some(Expression::Variable {
+                name: super_name, ..
+            }) => {
+                self.current_class = ClassType::SubClass;
+                let expr = superclass.unwrap();
+                self.resolve_expression(expr)?;
+                if name.lexeme == super_name.lexeme {
+                    let diag = Diagnostic::error()
+                        .with_message("A class can't inherit from itself")
+                        .with_labels(vec![Label::primary(
+                            super_name.source_id,
+                            super_name.source_range(),
+                        )]);
+                    return Err(diag);
+                }
+            }
+            Some(e) => {
+                panic!("ICE: expected superclass to be a Variable, found `{:?}`", e);
+            }
+            None => {}
+        }
+
+        if superclass.is_some() {
+            self.begin_scope();
+
+            self.scopes.last_mut().unwrap().insert(
+                self.interner.get("super").unwrap(),
+                Variable {
+                    init_state: InitState::Declared,
+                    source_range: name.source_range(),
+                    source_id: name.source_id,
+                },
+            );
+        }
+
         self.begin_scope();
         self.scopes.last_mut().unwrap().insert(
             self.interner.get_or_intern_static("this"),
@@ -219,6 +267,10 @@ impl<'a> Resolver<'a> {
             self.resolve_function(method, declaration)?;
         }
         self.end_scope();
+
+        if superclass.is_some() {
+            self.end_scope();
+        }
         self.current_class = enclosing_class;
 
         Ok(())
@@ -277,6 +329,19 @@ impl<'a> Resolver<'a> {
             Expression::Set { value, object, .. } => {
                 self.resolve_expression(value)?;
                 self.resolve_expression(object)?;
+            }
+            Expression::Super { keyword, id, .. } => {
+                if self.current_class != ClassType::SubClass {
+                    let diag = Diagnostic::error()
+                        .with_message("can't use `super` outside of a subclass")
+                        .with_labels(vec![Label::primary(
+                            keyword.source_id,
+                            keyword.source_range(),
+                        )]);
+                    return Err(diag);
+                }
+
+                self.resolve_variable(*keyword, *id)?;
             }
             Expression::This { keyword, id } => {
                 if self.current_class == ClassType::None {

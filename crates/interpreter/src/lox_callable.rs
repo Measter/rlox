@@ -66,14 +66,14 @@ pub struct LoxCallable {
 }
 
 impl LoxCallable {
-    fn bind(&self, instance: Rc<RefCell<LoxClassInstance>>, interner: &Rodeo) -> LoxCallable {
+    pub fn bind(&self, instance: Rc<RefCell<LoxClassInstance>>, interner: &Rodeo) -> LoxCallable {
         let mut closure = Environment::with_parent(self.closure.clone());
         let this_token = Token::make_ident(
             interner.get("this").unwrap(),
             self.declaration.name.source_id,
             self.declaration.name.source_range(),
         );
-        closure.define(this_token, None, Object::LoxClass(instance));
+        closure.define(this_token, None, Object::LoxClassInstance(instance));
 
         Self {
             declaration: self.declaration.clone(),
@@ -152,11 +152,18 @@ impl Callable for LoxCallable {
 pub struct LoxClassDefinition {
     pub name: Token,
     pub methods: HashMap<Spur, Rc<LoxCallable>>,
+    pub superclass: Option<Rc<LoxClassDefinition>>,
 }
 
 impl LoxClassDefinition {
-    fn find_method(&self, name: Token) -> Option<&Rc<LoxCallable>> {
-        self.methods.get(&name.lexeme)
+    pub fn find_method(&self, name: Token) -> Option<&Rc<LoxCallable>> {
+        if let Some(method) = self.methods.get(&name.lexeme) {
+            Some(method)
+        } else if let Some(superclass) = self.superclass.as_ref() {
+            superclass.find_method(name)
+        } else {
+            None
+        }
     }
 }
 
@@ -190,7 +197,7 @@ impl Callable for LoxClassConstructor {
                 .call(interpreter, emitter, interner, args)?;
         }
 
-        Ok(Object::LoxClass(instance))
+        Ok(Object::LoxClassInstance(instance))
     }
 
     fn arity(&self, interner: &Rodeo) -> usize {

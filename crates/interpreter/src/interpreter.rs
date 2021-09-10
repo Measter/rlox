@@ -122,15 +122,21 @@ impl Interpreter {
                 name,
                 methods,
                 source_range,
+                superclass,
             } => {
-                self.evaluate_statement_class(*name, methods, source_range.clone(), interner)?;
+                self.evaluate_statement_class(
+                    *name,
+                    methods,
+                    superclass.as_ref(),
+                    source_range.clone(),
+                    emitter,
+                    interner,
+                )?;
             }
             Statement::Expression(expr) => {
                 self.evaluate_expression(expr, emitter, interner)?;
             }
-            Statement::Function(func) => {
-                self.evaluate_statement_function(func.clone(), interner)?
-            }
+            Statement::Function(func) => self.evaluate_statement_function(func.clone())?,
             Statement::If {
                 condition,
                 then_branch,
@@ -207,11 +213,57 @@ impl Interpreter {
         &mut self,
         name: Token,
         methods: &[Rc<Function>],
+        superclass: Option<&Expression>,
         source_range: Range<usize>,
+        emitter: &mut DiagnosticEmitter<'_>,
         interner: &Rodeo,
     ) -> Result<(), Diagnostic<FileId>> {
-        let mut env = self.environment.borrow_mut();
-        env.define(name, None, Object::Uninitialized);
+        let superclass_def = match superclass {
+            Some(Expression::Variable {
+                name: super_name, ..
+            }) => {
+                let expr = superclass.unwrap();
+                let super_obj = self.evaluate_expression(expr, emitter, interner)?;
+
+                let super_constructor = if let Object::LoxClassConstructor(constructor) = super_obj
+                {
+                    constructor
+                } else {
+                    let diag = Diagnostic::error()
+                        .with_message("superclass must be a class")
+                        .with_labels(vec![Label::primary(
+                            super_name.source_id,
+                            super_name.source_range(),
+                        )
+                        .with_message(super_obj.kind())]);
+                    return Err(diag);
+                };
+                Some(super_constructor.definition.clone())
+            }
+            Some(_) => {
+                panic!("ICE: superclass wasn't a variable")
+            }
+            None => None,
+        };
+
+        {
+            let mut env = self.environment.borrow_mut();
+            env.define(name, None, Object::Uninitialized);
+        }
+
+        if let Some(def) = &superclass_def {
+            self.nest_scope();
+            let mut env = self.environment.borrow_mut();
+            let super_token = Token {
+                kind: TokenKind::Super,
+                lexeme: interner.get("super").unwrap(),
+                source_id: name.source_id,
+                source_start: name.source_start,
+                source_len: name.source_len,
+            };
+            env.define(super_token, None, Object::LoxClassSuper(def.clone()))
+        }
+
         let mut def_methods = HashMap::default();
 
         for method in methods {
@@ -224,18 +276,24 @@ impl Interpreter {
             def_methods.insert(method.name.lexeme, Rc::new(function));
         }
 
+        if superclass_def.is_some() {
+            self.pop_scope();
+        }
+
         let class = LoxClassDefinition {
             name,
             methods: def_methods,
+            superclass: superclass_def,
         };
         let constructor = LoxClassConstructor {
             definition: Rc::new(class),
         };
 
+        let mut env = self.environment.borrow_mut();
         env.assign(
             name,
             source_range,
-            Object::Callable(Rc::new(constructor)),
+            Object::LoxClassConstructor(Rc::new(constructor)),
             interner,
         )?;
         Ok(())
@@ -244,13 +302,12 @@ impl Interpreter {
     fn evaluate_statement_function(
         &mut self,
         func: Rc<Function>,
-        interner: &Rodeo,
     ) -> Result<(), Diagnostic<FileId>> {
         let name = func.name;
         let function = Rc::new(LoxCallable {
             declaration: func,
             closure: self.environment.clone(),
-            is_initializer: name.lexeme == interner.get("init").unwrap(),
+            is_initializer: false,
         });
         let obj = Object::Callable(function);
         let mut env = self.environment.borrow_mut();
@@ -324,7 +381,7 @@ impl Interpreter {
             Expression::Get { object, name, .. } => {
                 let obj = self.evaluate_expression(object, emitter, interner)?;
 
-                if let Object::LoxClass(instance) = obj {
+                if let Object::LoxClassInstance(instance) = obj {
                     LoxClassInstance::get(&instance, *name, interner)
                 } else {
                     let diag = Diagnostic::error()
@@ -352,7 +409,7 @@ impl Interpreter {
                 ..
             } => {
                 let obj = self.evaluate_expression(object, emitter, interner)?;
-                if let Object::LoxClass(instance) = obj {
+                if let Object::LoxClassInstance(instance) = obj {
                     let value = self.evaluate_expression(value, emitter, interner)?;
 
                     let mut instance = instance.borrow_mut();
@@ -371,6 +428,12 @@ impl Interpreter {
                 }
             }
 
+            Expression::Super {
+                keyword,
+                method,
+                id,
+            } => self.evaluate_expr_super(*keyword, *method, *id, interner),
+
             Expression::Unary {
                 operator, right, ..
             } => self.evaluate_expr_unary(*operator, right, emitter, interner),
@@ -378,6 +441,68 @@ impl Interpreter {
                 self.evaluate_expr_variable(*name, *id, emitter, interner)
             }
         }
+    }
+
+    fn evaluate_expr_super(
+        &mut self,
+        keyword: Token,
+        method: Token,
+        id: ExpressionId,
+        interner: &Rodeo,
+    ) -> EvaluateResult {
+        let distance = *self.locals.get(&id).expect("ICE: failed to find `super`");
+
+        let env = self.environment.borrow();
+        let (super_class, _) = env.get_at(keyword, distance, interner)?;
+
+        let super_class = if let Object::LoxClassSuper(sc) = super_class {
+            sc
+        } else {
+            let diag = Diagnostic::error()
+                .with_message("expected super to be a superclass")
+                .with_labels(vec![Label::primary(
+                    keyword.source_id,
+                    keyword.source_range(),
+                )
+                .with_message(super_class.kind())]);
+            return Err(diag);
+        };
+
+        let this_token = Token {
+            kind: TokenKind::This,
+            lexeme: interner.get("this").unwrap(),
+            ..keyword
+        };
+        let (class_instance, _) = env.get_at(this_token, distance - 1, interner)?;
+
+        let class_instance = if let Object::LoxClassInstance(instance) = class_instance {
+            instance
+        } else {
+            let diag = Diagnostic::error()
+                .with_message("expected super to be a superclass")
+                .with_labels(vec![Label::primary(
+                    keyword.source_id,
+                    keyword.source_range(),
+                )
+                .with_message(class_instance.kind())]);
+            return Err(diag);
+        };
+
+        let method = if let Some(method) = super_class.find_method(method) {
+            method
+        } else {
+            let diag = Diagnostic::error()
+                .with_message("undefined property")
+                .with_labels(vec![Label::primary(
+                    method.source_id,
+                    method.source_range(),
+                )]);
+            return Err(diag);
+        };
+
+        Ok(Object::Callable(Rc::new(
+            method.bind(class_instance, interner),
+        )))
     }
 
     fn evaluate_expr_assign(

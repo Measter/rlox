@@ -1,0 +1,23 @@
+class Base {
+    hi() {
+        print "Hello!";
+    }
+}
+
+class Derived < Base {
+    hi() {
+        super.hi();
+        print "Yo!";
+    }
+}
+
+Derived().hi();
+
+class BadSuper {
+    foo() {
+        super.foo();
+        print "No you foo!";
+    }
+}
+
+BadSuper().foo();

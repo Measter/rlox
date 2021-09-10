@@ -11,7 +11,9 @@ use fnv::FnvHashMap as HashMap;
 use lasso::{Rodeo, Spur};
 
 use crate::{
-    lox_callable::{Callable, LoxClassInstance, NativeCallable},
+    lox_callable::{
+        Callable, LoxClassConstructor, LoxClassDefinition, LoxClassInstance, NativeCallable,
+    },
     source_file::FileId,
     token::Token,
 };
@@ -23,15 +25,19 @@ pub enum Object {
     Boolean(bool),
     Nil,
     Uninitialized,
-    Callable(Rc<dyn Callable>),
-    LoxClass(Rc<RefCell<LoxClassInstance>>),
+    Callable(Rc<dyn Callable + 'static>),
+    LoxClassSuper(Rc<LoxClassDefinition>),
+    LoxClassConstructor(Rc<LoxClassConstructor>),
+    LoxClassInstance(Rc<RefCell<LoxClassInstance>>),
 }
 
 impl Clone for Object {
     fn clone(&self) -> Self {
         match self {
             Self::Callable(arg0) => Self::Callable(arg0.clone()),
-            Self::LoxClass(arg0) => Self::LoxClass(arg0.clone()),
+            Self::LoxClassConstructor(arg0) => Self::LoxClassConstructor(arg0.clone()),
+            Self::LoxClassInstance(arg0) => Self::LoxClassInstance(arg0.clone()),
+            Self::LoxClassSuper(arg0) => Self::LoxClassSuper(arg0.clone()),
             Self::Boolean(arg0) => Self::Boolean(*arg0),
             Self::Nil => Self::Nil,
             Self::Number(arg0) => Self::Number(*arg0),
@@ -47,7 +53,10 @@ impl PartialEq for Object {
             (Self::String(l0), Self::String(r0)) => l0 == r0,
             (Self::Number(l0), Self::Number(r0)) => l0 == r0,
             (Self::Boolean(l0), Self::Boolean(r0)) => l0 == r0,
-            (Self::Callable(_), Self::Callable(_)) => false,
+            (
+                Self::Callable(_) | Self::LoxClassConstructor(_),
+                Self::Callable(_) | Self::LoxClassConstructor(_),
+            ) => false,
             _ => core::mem::discriminant(self) == core::mem::discriminant(other),
         }
     }
@@ -56,8 +65,9 @@ impl PartialEq for Object {
 impl Object {
     pub fn kind(&self) -> &'static str {
         match self {
-            Object::Callable(_) => "Function",
-            Object::LoxClass(_) => "Class",
+            Object::Callable(_) | Object::LoxClassConstructor(_) => "Function",
+            Object::LoxClassInstance(_) => "Class Instance",
+            Object::LoxClassSuper(_) => "Class Super",
             Object::Boolean(_) => "Boolean",
             Object::Nil => "Nil",
             Object::Number(_) => "Number",
@@ -80,11 +90,23 @@ impl Object {
                 f.write_all(callable.name(interner).as_bytes())?;
                 f.write_all(b">")
             }
-            Object::LoxClass(class) => {
+            Object::LoxClassConstructor(callable) => {
+                f.write_all(b"<")?;
+                f.write_all(callable.kind().as_bytes())?;
+                f.write_all(b" ")?;
+                f.write_all(callable.name(interner).as_bytes())?;
+                f.write_all(b">")
+            }
+            Object::LoxClassInstance(class) => {
                 let class = class.borrow();
                 f.write_all(b"<class ")?;
                 f.write_all(interner.resolve(&class.definition.name.lexeme).as_bytes())?;
                 f.write_all(b" instance>")
+            }
+            Object::LoxClassSuper(def) => {
+                f.write_all(b"<class ")?;
+                f.write_all(interner.resolve(&def.name.lexeme).as_bytes())?;
+                f.write_all(b" definition>")
             }
             Object::Nil => f.write_all(b"nil"),
             Object::Number(n) => write!(f, "{}", n),

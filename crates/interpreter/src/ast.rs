@@ -70,6 +70,11 @@ pub enum Expression {
         keyword: Token,
         id: ExpressionId,
     },
+    Super {
+        keyword: Token,
+        method: Token,
+        id: ExpressionId,
+    },
     Unary {
         operator: Token,
         right: Box<Expression>,
@@ -161,6 +166,14 @@ impl Expression {
         Self::This { keyword, id }
     }
 
+    pub fn super_keyword(keyword: Token, method: Token, id: ExpressionId) -> Self {
+        Self::Super {
+            keyword,
+            method,
+            id,
+        }
+    }
+
     pub fn unary(operator: Token, right: Expression, id: ExpressionId) -> Self {
         assert!(operator.kind.is_unary());
 
@@ -185,6 +198,7 @@ impl Expression {
             | Expression::Literal { id, .. }
             | Expression::Logical { id, .. }
             | Expression::Set { id, .. }
+            | Expression::Super { id, .. }
             | Expression::This { id, .. }
             | Expression::Unary { id, .. }
             | Expression::Variable { id, .. } => id.file_id,
@@ -216,7 +230,9 @@ impl Expression {
                 let end = value.source_range().end;
                 start..end
             }
-            Expression::This { keyword, .. } => keyword.source_range(),
+            Expression::Super { keyword, .. } | Expression::This { keyword, .. } => {
+                keyword.source_range()
+            }
             Expression::Unary {
                 operator, right, ..
             } => {
@@ -239,6 +255,7 @@ impl Expression {
             | Expression::Literal { id, .. }
             | Expression::Logical { id, .. }
             | Expression::Set { id, .. }
+            | Expression::Super { id, .. }
             | Expression::This { id, .. }
             | Expression::Unary { id, .. }
             | Expression::Variable { id, .. } => *id,
@@ -262,6 +279,7 @@ pub enum Statement {
         name: Token,
         methods: Vec<Rc<Function>>,
         source_range: Range<usize>,
+        superclass: Option<Expression>,
     },
     Expression(Expression),
     Function(Rc<Function>),
