@@ -719,7 +719,11 @@ impl<'collection, 'interner> Parser<'collection, 'interner> {
     }
 
     fn previous(&self) -> Token {
-        self.source[self.current]
+        self.source
+            .get(self.current)
+            .or_else(|| self.source.last())
+            .copied()
+            .unwrap()
     }
 
     fn synchronize(&mut self) {
