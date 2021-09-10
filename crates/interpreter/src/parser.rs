@@ -551,8 +551,7 @@ impl<'collection, 'interner> Parser<'collection, 'interner> {
         loop {
             if self.matches(|k| k == TokenKind::LeftParen).is_some() {
                 expr = self.finish_call(expr)?;
-            }
-            if self.matches(|k| k == TokenKind::Dot).is_some() {
+            } else if self.matches(|k| k == TokenKind::Dot).is_some() {
                 let name = self.expect(TokenKind::Identifier, "ident", Vec::new)?;
                 expr = Expression::get(expr, name, self.expression_id());
             } else {
