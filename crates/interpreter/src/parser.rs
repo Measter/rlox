@@ -262,23 +262,30 @@ impl<'collection, 'interner> Parser<'collection, 'interner> {
         let condition = self
             .matches(|k| k == TokenKind::SemiColon)
             .is_none()
-            .then(|| self.expression())
+            .then(|| {
+                let expr = self.expression()?;
+
+                self.expect(TokenKind::SemiColon, "`;`", Vec::new)?;
+                Ok(expr)
+            })
             .transpose()?;
-        self.expect(TokenKind::SemiColon, "`;`", Vec::new)?;
 
         let increment = self
-            .matches(|k| k == TokenKind::SemiColon)
+            .matches(|k| k == TokenKind::RightParen)
             .is_none()
-            .then(|| self.expression())
-            .transpose()?;
+            .then(|| {
+                let expr = self.expression()?;
 
-        let left_paren_range = left_paren.source_range();
-        self.expect(TokenKind::RightParen, "`)`", || {
-            vec![
-                Label::secondary(left_paren.source_id, left_paren_range.clone())
-                    .with_message("opened here"),
-            ]
-        })?;
+                let left_paren_range = left_paren.source_range();
+                self.expect(TokenKind::RightParen, "`)`", || {
+                    vec![
+                        Label::secondary(left_paren.source_id, left_paren_range.clone())
+                            .with_message("opened here"),
+                    ]
+                })?;
+                Ok(expr)
+            })
+            .transpose()?;
 
         let mut body = vec![self.statement()?];
         if let Some(increment) = increment {
