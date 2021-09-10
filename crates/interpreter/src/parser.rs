@@ -720,7 +720,7 @@ impl<'collection, 'interner> Parser<'collection, 'interner> {
 
     fn previous(&self) -> Token {
         self.source
-            .get(self.current)
+            .get(self.current.saturating_sub(1))
             .or_else(|| self.source.last())
             .copied()
             .unwrap()
