@@ -410,17 +410,18 @@ impl Interpreter {
             evaluated_args.push(self.evaluate_expression(arg, emitter, interner)?);
         }
 
-        let callee_function = if let Object::Callable(callee) = callee_obj {
-            callee
-        } else {
-            let diag = Diagnostic::error()
-                .with_message("can only call functions and classes")
-                .with_labels(vec![
-                    Label::primary(callee.source_id(), source_range),
-                    Label::secondary(callee.source_id(), callee.source_range())
-                        .with_message(callee_obj.kind()),
-                ]);
-            return Err(diag);
+        let callee_function = match callee_obj {
+            Object::Callable(callee) => callee,
+            Object::LoxClassConstructor(callee) => callee,
+            _ => {
+                let diag = Diagnostic::error()
+                    .with_message("can only call functions and class constructors")
+                    .with_labels(vec![
+                        Label::primary(callee.source_id(), source_range),
+                        make_secondary_variable_label(callee, &callee_obj, &self.environment),
+                    ]);
+                return Err(diag);
+            }
         };
 
         if evaluated_args.len() != callee_function.arity(interner) {
