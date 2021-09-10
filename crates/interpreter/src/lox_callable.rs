@@ -26,6 +26,11 @@ pub trait Callable: std::fmt::Debug {
     fn name<'a>(&self, interner: &'a Rodeo) -> &'a str;
 
     fn kind(&self) -> &'static str;
+
+    // Functions need to be compared by identity, but comparing a trait object
+    // results in comparing the vtable pointers.
+    // We need to compare data pointers instead, which means erasing the type.
+    fn as_void_ptr(&self) -> *const u8;
 }
 
 #[derive(Debug)]
@@ -56,6 +61,10 @@ impl Callable for NativeCallable {
 
     fn kind(&self) -> &'static str {
         "native fn"
+    }
+
+    fn as_void_ptr(&self) -> *const u8 {
+        self as *const Self as *const u8
     }
 }
 
@@ -146,6 +155,10 @@ impl Callable for LoxCallable {
     fn kind(&self) -> &'static str {
         "fn"
     }
+
+    fn as_void_ptr(&self) -> *const u8 {
+        self as *const Self as *const u8
+    }
 }
 
 #[derive(Debug)]
@@ -218,6 +231,10 @@ impl Callable for LoxClassConstructor {
 
     fn kind(&self) -> &'static str {
         "class"
+    }
+
+    fn as_void_ptr(&self) -> *const u8 {
+        self as *const Self as *const u8
     }
 }
 

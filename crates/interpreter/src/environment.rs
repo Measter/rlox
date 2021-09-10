@@ -53,10 +53,12 @@ impl PartialEq for Object {
             (Self::String(l0), Self::String(r0)) => l0 == r0,
             (Self::Number(l0), Self::Number(r0)) => l0 == r0,
             (Self::Boolean(l0), Self::Boolean(r0)) => l0 == r0,
-            (
-                Self::Callable(_) | Self::LoxClassConstructor(_),
-                Self::Callable(_) | Self::LoxClassConstructor(_),
-            ) => false,
+            (Self::Callable(l0), Self::Callable(l1)) => {
+                std::ptr::eq(l0.as_void_ptr(), l1.as_void_ptr())
+            }
+            (Self::LoxClassConstructor(l0), Self::LoxClassConstructor(l1)) => Rc::ptr_eq(l0, l1),
+            (Self::LoxClassInstance(l0), Self::LoxClassInstance(l1)) => Rc::ptr_eq(l0, l1),
+            (Self::LoxClassSuper(l0), Self::LoxClassSuper(l1)) => Rc::ptr_eq(l0, l1),
             _ => core::mem::discriminant(self) == core::mem::discriminant(other),
         }
     }
