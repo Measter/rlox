@@ -437,7 +437,7 @@ impl<'collection, 'interner> Parser<'collection, 'interner> {
                 _ => (),
             }
 
-            let diag = Diagnostic::warning()
+            let diag = Diagnostic::error()
                 .with_message("invalid assignment target")
                 .with_labels(vec![Label::primary(
                     equals.source_id,
