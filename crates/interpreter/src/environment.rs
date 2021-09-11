@@ -18,9 +18,33 @@ use crate::{
     token::Token,
 };
 
+#[derive(Debug, Clone)]
+pub enum StringObject {
+    Literal(Spur),
+    Runtime(Rc<String>),
+}
+
+impl StringObject {
+    pub fn eq(&self, rhs: &Self, interner: &Rodeo) -> bool {
+        match (self, rhs) {
+            (StringObject::Literal(a), StringObject::Literal(b)) => a == b,
+            (StringObject::Runtime(a), StringObject::Runtime(b)) => a == b,
+            (StringObject::Literal(a), StringObject::Runtime(b)) => **b == interner.resolve(a),
+            (StringObject::Runtime(a), StringObject::Literal(b)) => **a == interner.resolve(b),
+        }
+    }
+
+    pub fn as_str<'a>(&'a self, interner: &'a Rodeo) -> &'a str {
+        match self {
+            StringObject::Literal(a) => interner.resolve(a),
+            StringObject::Runtime(b) => b,
+        }
+    }
+}
+
 #[derive(Debug)]
 pub enum Object {
-    String(Rc<String>),
+    String(StringObject),
     Number(f64),
     Boolean(bool),
     Nil,
@@ -47,10 +71,10 @@ impl Clone for Object {
     }
 }
 
-impl PartialEq for Object {
-    fn eq(&self, other: &Self) -> bool {
+impl Object {
+    pub fn eq(&self, other: &Self, interner: &Rodeo) -> bool {
         match (self, other) {
-            (Self::String(l0), Self::String(r0)) => l0 == r0,
+            (Self::String(l0), Self::String(r0)) => l0.eq(r0, interner),
             (Self::Number(l0), Self::Number(r0)) => l0 == r0,
             (Self::Boolean(l0), Self::Boolean(r0)) => l0 == r0,
             (Self::Callable(l0), Self::Callable(l1)) => {
@@ -62,9 +86,7 @@ impl PartialEq for Object {
             _ => core::mem::discriminant(self) == core::mem::discriminant(other),
         }
     }
-}
 
-impl Object {
     pub fn kind(&self) -> &'static str {
         match self {
             Object::Callable(_) | Object::LoxClassConstructor(_) => "Function",
@@ -112,7 +134,7 @@ impl Object {
             }
             Object::Nil => f.write_all(b"nil"),
             Object::Number(n) => write!(f, "{}", n),
-            Object::String(s) => f.write_all(s.as_bytes()),
+            Object::String(s) => f.write_all(s.as_str(interner).as_bytes()),
             Object::Uninitialized => f.write_all(b"uninitialized"),
         }
     }
@@ -245,7 +267,7 @@ impl Environment {
         interner: &Rodeo,
     ) -> Result<(Object, Option<Diagnostic<FileId>>), Diagnostic<FileId>> {
         match self.stored_variables.get(&name.lexeme) {
-            Some(v) if v.value == Object::Uninitialized => {
+            Some(v) if matches!(v.value, Object::Uninitialized) => {
                 let name_lexeme = interner.resolve(&name.lexeme);
                 let diag = Diagnostic::warning()
                     .with_message(format!("variable `{}` was uninitialized", name_lexeme))

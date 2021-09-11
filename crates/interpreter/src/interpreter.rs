@@ -6,7 +6,7 @@ use lasso::Rodeo;
 
 use crate::{
     ast::{Expression, ExpressionId, Function, Statement},
-    environment::{Environment, Object},
+    environment::{Environment, Object, StringObject},
     lox_callable::{LoxCallable, LoxClassConstructor, LoxClassDefinition, LoxClassInstance},
     source_file::FileId,
     token::{Token, TokenKind},
@@ -15,12 +15,9 @@ use crate::{
 
 pub type EvaluateResult = Result<Object, Diagnostic<FileId>>;
 
-fn get_literal(kind: TokenKind, interner: &Rodeo) -> Object {
+fn get_literal(kind: TokenKind) -> Object {
     match kind {
-        TokenKind::String(s) => {
-            let s = interner.resolve(&s);
-            Object::String(Rc::new(s.to_owned()))
-        }
+        TokenKind::String(s) => Object::String(StringObject::Literal(s)),
         TokenKind::Number(n) => Object::Number(n),
         TokenKind::Boolean(b) => Object::Boolean(b),
         TokenKind::Nil => Object::Nil,
@@ -395,7 +392,7 @@ impl Interpreter {
                     Err(diag)
                 }
             }
-            Expression::Literal { value, .. } => Ok(get_literal(value.kind, interner)),
+            Expression::Literal { value, .. } => Ok(get_literal(value.kind)),
             Expression::Logical {
                 left,
                 operator,
@@ -678,9 +675,9 @@ impl Interpreter {
 
             // String concatination
             (TokenKind::Plus, Object::String(left), Object::String(right)) => {
-                let mut left = left.as_str().to_owned();
-                left += right.as_str();
-                Object::String(Rc::new(left))
+                let mut left = left.as_str(interner).to_owned();
+                left += right.as_str(interner);
+                Object::String(StringObject::Runtime(Rc::new(left)))
             }
 
             // Comparison operators
@@ -696,8 +693,8 @@ impl Interpreter {
             (TokenKind::LessEqual, Object::Number(left), Object::Number(right)) => {
                 Object::Boolean(left <= right)
             }
-            (TokenKind::BangEqual, left, right) => Object::Boolean(left != right),
-            (TokenKind::EqualEqual, left, right) => Object::Boolean(left == right),
+            (TokenKind::BangEqual, left, right) => Object::Boolean(!(left.eq(&right, interner))),
+            (TokenKind::EqualEqual, left, right) => Object::Boolean(left.eq(&right, interner)),
 
             // Unsupported operations
             (
