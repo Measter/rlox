@@ -125,8 +125,7 @@ impl<'collection, 'interner> Parser<'collection, 'interner> {
             .unwrap_or_else(|| self.statement())
     }
 
-    fn class_declaration(&mut self) -> ParseResult<Statement> {
-        let class_token = self.previous();
+    fn class_declaration(&mut self, class_token: Token) -> ParseResult<Statement> {
         let name = self.expect(TokenKind::Identifier, "ident", Vec::new)?;
 
         let superclass = self
@@ -148,7 +147,8 @@ impl<'collection, 'interner> Parser<'collection, 'interner> {
                 break;
             }
 
-            let func = match self.function_declaration()? {
+            // There's no actual function token here, so just stick in the last one (should be a brace).
+            let func = match self.function_declaration(self.previous())? {
                 Statement::Function(f) => Rc::try_unwrap(f).unwrap(), // A bit inefficient, but whatever...
                 _ => unreachable!(),
             };
@@ -173,7 +173,7 @@ impl<'collection, 'interner> Parser<'collection, 'interner> {
         })
     }
 
-    fn function_declaration(&mut self) -> ParseResult<Statement> {
+    fn function_declaration(&mut self, _: Token) -> ParseResult<Statement> {
         let name = self.expect(TokenKind::Identifier, "ident", Vec::new)?;
         let left_paren = self.expect(TokenKind::LeftParen, "`(`", Vec::new)?;
 
@@ -203,8 +203,8 @@ impl<'collection, 'interner> Parser<'collection, 'interner> {
             })?;
         }
 
-        self.expect(TokenKind::LeftBrace, "`{`", Vec::new)?;
-        let body = match self.block_statement()? {
+        let left_brace = self.expect(TokenKind::LeftBrace, "`{`", Vec::new)?;
+        let body = match self.block_statement(left_brace)? {
             Statement::Block { statements } => statements,
             _ => unreachable!(),
         };
@@ -216,7 +216,7 @@ impl<'collection, 'interner> Parser<'collection, 'interner> {
         })))
     }
 
-    fn var_declaration(&mut self) -> ParseResult<Statement> {
+    fn var_declaration(&mut self, _: Token) -> ParseResult<Statement> {
         let name = self.expect(TokenKind::Identifier, "ident", Vec::new)?;
 
         let initializer = self
@@ -243,15 +243,14 @@ impl<'collection, 'interner> Parser<'collection, 'interner> {
     fn try_parse_statement(
         &mut self,
         kind: TokenKind,
-        then_parse: fn(&mut Self) -> ParseResult<Statement>,
+        then_parse: fn(&mut Self, Token) -> ParseResult<Statement>,
     ) -> Option<ParseResult<Statement>> {
-        self.matches(|k| k == kind).map(|_| then_parse(self))
+        self.matches(|k| k == kind).map(|t| then_parse(self, t))
     }
 
-    fn for_statement(&mut self) -> ParseResult<Statement> {
+    fn for_statement(&mut self, for_token: Token) -> ParseResult<Statement> {
         // We'll just desugar into a while loop.
 
-        let for_token = self.previous();
         let for_token_range = for_token.source_range();
         let left_paren = self.expect(TokenKind::LeftParen, "`(`", || {
             vec![
@@ -262,8 +261,8 @@ impl<'collection, 'interner> Parser<'collection, 'interner> {
 
         let init = if self.matches(|k| k == TokenKind::SemiColon).is_some() {
             None
-        } else if self.matches(|k| k == TokenKind::Var).is_some() {
-            Some(self.var_declaration()?)
+        } else if let Some(var_token) = self.matches(|k| k == TokenKind::Var) {
+            Some(self.var_declaration(var_token)?)
         } else {
             Some(self.expression_statement()?)
         };
@@ -328,8 +327,7 @@ impl<'collection, 'interner> Parser<'collection, 'interner> {
         }
     }
 
-    fn if_statement(&mut self) -> ParseResult<Statement> {
-        let if_token = self.previous();
+    fn if_statement(&mut self, if_token: Token) -> ParseResult<Statement> {
         let if_token_range = if_token.source_range();
         let left_paren = self.expect(TokenKind::LeftParen, "`(`", || {
             vec![Label::secondary(if_token.source_id, if_token_range.clone())
@@ -358,8 +356,7 @@ impl<'collection, 'interner> Parser<'collection, 'interner> {
         })
     }
 
-    fn block_statement(&mut self) -> ParseResult<Statement> {
-        let left_brace = self.previous();
+    fn block_statement(&mut self, left_brace: Token) -> ParseResult<Statement> {
         let mut statements = Vec::new();
 
         while !matches!(self.tokens.peek(), Some(t) if t.kind == TokenKind::RightBrace) {
@@ -377,14 +374,13 @@ impl<'collection, 'interner> Parser<'collection, 'interner> {
         Ok(Statement::Block { statements })
     }
 
-    fn print_statement(&mut self) -> ParseResult<Statement> {
+    fn print_statement(&mut self, _: Token) -> ParseResult<Statement> {
         let value = self.expression()?;
         self.expect(TokenKind::SemiColon, "`;`", Vec::new)?;
         Ok(Statement::Print(value))
     }
 
-    fn return_statement(&mut self) -> ParseResult<Statement> {
-        let keyword = self.previous();
+    fn return_statement(&mut self, keyword: Token) -> ParseResult<Statement> {
         let value = if self.matches(|k| k == TokenKind::SemiColon).is_none() {
             let value = self.expression()?;
             self.expect(TokenKind::SemiColon, "`;`", Vec::new)?;
@@ -396,8 +392,7 @@ impl<'collection, 'interner> Parser<'collection, 'interner> {
         Ok(Statement::Return { keyword, value })
     }
 
-    fn while_statement(&mut self) -> ParseResult<Statement> {
-        let while_token = self.previous();
+    fn while_statement(&mut self, while_token: Token) -> ParseResult<Statement> {
         let while_token_range = while_token.source_range();
         let left_paren = self.expect(TokenKind::LeftParen, "`(`", || {
             vec![
