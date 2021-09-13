@@ -245,9 +245,7 @@ impl<'collection, 'interner> Parser<'collection, 'interner> {
         kind: TokenKind,
         then_parse: fn(&mut Self) -> ParseResult<Statement>,
     ) -> Option<ParseResult<Statement>> {
-        self.matches(|k| k == kind)
-            .is_some()
-            .then(|| then_parse(self))
+        self.matches(|k| k == kind).map(|_| then_parse(self))
     }
 
     fn for_statement(&mut self) -> ParseResult<Statement> {
