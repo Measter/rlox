@@ -156,12 +156,21 @@ fn run_tests(args: &Args, tests: &[DirEntry], name_len: usize) -> Result<()> {
             }
         };
 
-        if output.stderr == stderr_file && output.stdout == stdout_file {
-            println!("OK");
-            succeeded += 1;
+        print!("stderr: ");
+        if output.stderr == stderr_file {
+            print!("Ok    ")
         } else {
-            println!("Failed");
+            print!("failed");
         }
+
+        print!(" stdout: ");
+        if output.stdout == stdout_file {
+            println!("Ok")
+        } else {
+            println!("failed");
+        }
+
+        succeeded += (output.stderr == stderr_file && output.stdout == stdout_file) as usize;
     }
 
     println!(
