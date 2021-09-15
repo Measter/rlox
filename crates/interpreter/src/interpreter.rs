@@ -111,9 +111,10 @@ impl Interpreter {
     ) -> Result<Option<Object>, Diagnostic<FileId>> {
         match stmnt {
             Statement::Block { statements } => {
-                if let Some(obj) = self.evaluate_statement_block(statements, emitter, interner)? {
-                    return Ok(Some(obj));
-                };
+                self.nest_scope();
+                let ret_val = self.evaluate_statement_block(statements, emitter, interner);
+                self.pop_scope();
+                return ret_val;
             }
             Statement::Class {
                 name,
@@ -186,22 +187,18 @@ impl Interpreter {
         emitter: &mut DiagnosticEmitter<'_>,
         interner: &Rodeo,
     ) -> Result<Option<Object>, Diagnostic<FileId>> {
-        self.nest_scope();
         for statement in statements {
             match self.evaluate_statement(statement, emitter, interner) {
                 Ok(Some(obj)) => {
-                    self.pop_scope();
                     return Ok(Some(obj));
                 }
                 Ok(None) => {}
                 Err(diag) => {
-                    self.pop_scope();
                     self.had_runtime_error = true;
                     return Err(diag);
                 }
             }
         }
-        self.pop_scope();
 
         Ok(None)
     }

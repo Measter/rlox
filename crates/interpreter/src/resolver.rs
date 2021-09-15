@@ -285,13 +285,7 @@ impl<'a> Resolver<'a> {
             self.define(param);
         }
 
-        // There's a bit of a difference in how the author's code handles blocks and mine
-        // which results one scope being introduced for the function arguments, and a second
-        // for the function body.
-        // Fixing that would make the interpreter a bit more complex, so I'm "fixing" it here.
-        self.begin_scope();
         self.resolve(&func.body)?;
-        self.end_scope();
 
         self.end_scope();
         self.current_function = enclosing_function;
