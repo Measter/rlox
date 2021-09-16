@@ -2,15 +2,12 @@
 
 use codespan_reporting::{
     diagnostic::Diagnostic,
-    term::{
-        termcolor::{ColorChoice, StandardStream, StandardStreamLock},
-        Config,
-    },
+    term::termcolor::{ColorChoice, StandardStream},
 };
 use color_eyre::{eyre::eyre, eyre::Context, Result};
 use lasso::Rodeo;
 use resolver::Resolver;
-use source_file::{FileId, SourceFile};
+use rlox::{source_file::FileId, DiagnosticEmitter};
 
 mod ast;
 mod environment;
@@ -19,43 +16,9 @@ mod lexer;
 mod lox_callable;
 mod parser;
 mod resolver;
-mod source_file;
 mod token;
 
 use crate::{interpreter::Interpreter, lexer::Lexer, parser::Parser};
-
-pub struct DiagnosticEmitter<'a> {
-    cfg: Config,
-    file: SourceFile,
-    stderr: StandardStreamLock<'a>,
-}
-
-impl<'a> DiagnosticEmitter<'a> {
-    fn new(output: &'a StandardStream) -> Self {
-        DiagnosticEmitter {
-            cfg: codespan_reporting::term::Config::default(),
-            file: SourceFile::new(),
-            stderr: output.lock(),
-        }
-    }
-
-    fn add_file(&mut self, name: &str, contents: &str) -> FileId {
-        self.file.add(name, contents)
-    }
-
-    fn emit_diagnostic(&mut self, diag: &Diagnostic<FileId>) -> Result<()> {
-        codespan_reporting::term::emit(&mut self.stderr, &self.cfg, &self.file, diag)
-            .with_context(|| "Failed to write diagnostic")?;
-
-        Ok(())
-    }
-
-    fn emit_diagnostics(&mut self, diags: &[Diagnostic<FileId>]) -> Result<()> {
-        diags.iter().try_for_each(|d| self.emit_diagnostic(d))?;
-
-        Ok(())
-    }
-}
 
 fn main() -> Result<()> {
     color_eyre::install()?;

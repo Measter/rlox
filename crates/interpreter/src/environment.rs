@@ -9,12 +9,12 @@ use std::{
 use codespan_reporting::diagnostic::{Diagnostic, Label};
 use fnv::FnvHashMap as HashMap;
 use lasso::{Rodeo, Spur};
+use rlox::source_file::FileId;
 
 use crate::{
     lox_callable::{
         Callable, LoxClassConstructor, LoxClassDefinition, LoxClassInstance, NativeCallable,
     },
-    source_file::FileId,
     token::Token,
 };
 

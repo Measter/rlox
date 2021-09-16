@@ -2,11 +2,11 @@ use std::{collections::HashMap, ops::Range, rc::Rc};
 
 use codespan_reporting::diagnostic::{Diagnostic, Label};
 use lasso::{Rodeo, Spur};
+use rlox::source_file::FileId;
 
 use crate::{
     ast::{Expression, ExpressionId, Function, Statement},
     interpreter::Interpreter,
-    source_file::FileId,
     token::Token,
 };
 

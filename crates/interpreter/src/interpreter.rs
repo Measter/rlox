@@ -3,12 +3,12 @@ use std::{cell::RefCell, fmt::Write as _, io::Stdout, ops::Range, rc::Rc};
 use codespan_reporting::diagnostic::{Diagnostic, Label};
 use fnv::FnvHashMap as HashMap;
 use lasso::Rodeo;
+use rlox::source_file::FileId;
 
 use crate::{
     ast::{Expression, ExpressionId, Function, Statement},
     environment::{Environment, Object, StringObject},
     lox_callable::{LoxCallable, LoxClassConstructor, LoxClassDefinition, LoxClassInstance},
-    source_file::FileId,
     token::{Token, TokenKind},
     DiagnosticEmitter,
 };

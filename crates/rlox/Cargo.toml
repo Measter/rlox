@@ -1,14 +1,10 @@
 [package]
-name = "rloxr"
+name = "rlox"
 version = "0.1.0"
 edition = "2018"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
-
 [dependencies]
-rlox = { path = "../rlox" }
 codespan-reporting = "0.11.1"
 color-eyre = "0.5.11"
-fnv = "1.0.7"
-lasso = "0.6.0"
