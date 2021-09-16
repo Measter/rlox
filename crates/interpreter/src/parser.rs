@@ -2,6 +2,7 @@ use std::{iter::Peekable, rc::Rc, slice::Iter};
 
 use codespan_reporting::diagnostic::{Diagnostic, Label};
 use lasso::Rodeo;
+use rlox::source_file::SourceLocation;
 
 use crate::{
     ast::{Expression, ExpressionId, Function, Statement},
@@ -158,12 +159,12 @@ impl<'collection, 'interner> Parser<'collection, 'interner> {
 
         let right_brace = self.expect(TokenKind::RightBrace, "`}`", || {
             vec![Label::secondary(
-                left_brace.source_id,
+                left_brace.location.file_id,
                 left_brace.source_range(),
             )]
         })?;
 
-        let source_range = class_token.source_start..right_brace.source_range().end;
+        let source_range = class_token.location.source_start..right_brace.source_range().end;
 
         Ok(Statement::Class {
             name,
@@ -184,7 +185,10 @@ impl<'collection, 'interner> Parser<'collection, 'interner> {
                 if parameters.len() >= 255 {
                     let diag = Diagnostic::error()
                         .with_message("can't have more than 255 parameters")
-                        .with_labels(vec![Label::primary(name.source_id, name.source_range())]);
+                        .with_labels(vec![Label::primary(
+                            name.location.file_id,
+                            name.source_range(),
+                        )]);
                     return Err(diag);
                 }
                 parameters.push(self.expect(TokenKind::Identifier, "ident", Vec::new)?);
@@ -197,7 +201,7 @@ impl<'collection, 'interner> Parser<'collection, 'interner> {
             let left_paren_range = left_paren.source_range();
             self.expect(TokenKind::RightParen, "')'", || {
                 vec![
-                    Label::secondary(left_paren.source_id, left_paren_range.clone())
+                    Label::secondary(left_paren.location.file_id, left_paren_range.clone())
                         .with_message("opened here"),
                 ]
             })?;
@@ -254,7 +258,7 @@ impl<'collection, 'interner> Parser<'collection, 'interner> {
         let for_token_range = for_token.source_range();
         let left_paren = self.expect(TokenKind::LeftParen, "`(`", || {
             vec![
-                Label::secondary(for_token.source_id, for_token_range.clone())
+                Label::secondary(for_token.location.file_id, for_token_range.clone())
                     .with_message("for-statements require parenthesis"),
             ]
         })?;
@@ -287,7 +291,7 @@ impl<'collection, 'interner> Parser<'collection, 'interner> {
                 let left_paren_range = left_paren.source_range();
                 self.expect(TokenKind::RightParen, "`)`", || {
                     vec![
-                        Label::secondary(left_paren.source_id, left_paren_range.clone())
+                        Label::secondary(left_paren.location.file_id, left_paren_range.clone())
                             .with_message("opened here"),
                     ]
                 })?;
@@ -305,9 +309,11 @@ impl<'collection, 'interner> Parser<'collection, 'interner> {
                 Token {
                     kind: TokenKind::Boolean(true),
                     lexeme: self.interner.get_or_intern_static("true"),
-                    source_start: 0,
-                    source_len: 0,
-                    source_id: self.file_id,
+                    location: SourceLocation {
+                        file_id: self.file_id,
+                        source_start: 0,
+                        len: 0,
+                    },
                 },
                 self.expression_id(),
             )
@@ -330,14 +336,16 @@ impl<'collection, 'interner> Parser<'collection, 'interner> {
     fn if_statement(&mut self, if_token: Token) -> ParseResult<Statement> {
         let if_token_range = if_token.source_range();
         let left_paren = self.expect(TokenKind::LeftParen, "`(`", || {
-            vec![Label::secondary(if_token.source_id, if_token_range.clone())
-                .with_message("if-statements require parenthesis")]
+            vec![
+                Label::secondary(if_token.location.file_id, if_token_range.clone())
+                    .with_message("if-statements require parenthesis"),
+            ]
         })?;
         let condition = self.expression()?;
         let left_paren_range = left_paren.source_range();
         self.expect(TokenKind::RightParen, "`)`", || {
             vec![
-                Label::secondary(left_paren.source_id, left_paren_range.clone())
+                Label::secondary(left_paren.location.file_id, left_paren_range.clone())
                     .with_message("opened here"),
             ]
         })?;
@@ -366,7 +374,7 @@ impl<'collection, 'interner> Parser<'collection, 'interner> {
         let left_brace_range = left_brace.source_range();
         self.expect(TokenKind::RightBrace, "`}`", || {
             vec![
-                Label::secondary(left_brace.source_id, left_brace_range.clone())
+                Label::secondary(left_brace.location.file_id, left_brace_range.clone())
                     .with_message("opened here"),
             ]
         })?;
@@ -396,7 +404,7 @@ impl<'collection, 'interner> Parser<'collection, 'interner> {
         let while_token_range = while_token.source_range();
         let left_paren = self.expect(TokenKind::LeftParen, "`(`", || {
             vec![
-                Label::secondary(while_token.source_id, while_token_range.clone())
+                Label::secondary(while_token.location.file_id, while_token_range.clone())
                     .with_message("while-loops require parenthesis"),
             ]
         })?;
@@ -405,7 +413,7 @@ impl<'collection, 'interner> Parser<'collection, 'interner> {
         let left_paren_range = left_paren.source_range();
         self.expect(TokenKind::RightParen, "`)`", || {
             vec![
-                Label::secondary(left_paren.source_id, left_paren_range.clone())
+                Label::secondary(left_paren.location.file_id, left_paren_range.clone())
                     .with_message("opened here"),
             ]
         })?;
@@ -451,7 +459,7 @@ impl<'collection, 'interner> Parser<'collection, 'interner> {
             let diag = Diagnostic::error()
                 .with_message("invalid assignment target")
                 .with_labels(vec![Label::primary(
-                    equals.source_id,
+                    equals.location.file_id,
                     equals.source_range(),
                 )]);
 
@@ -581,7 +589,7 @@ impl<'collection, 'interner> Parser<'collection, 'interner> {
                 let left_paren_range = left_paren.source_range();
                 self.expect(TokenKind::RightParen, "')'", || {
                     vec![
-                        Label::secondary(left_paren.source_id, left_paren_range.clone())
+                        Label::secondary(left_paren.location.file_id, left_paren_range.clone())
                             .with_message("opened here"),
                     ]
                 })?
@@ -610,10 +618,11 @@ impl<'collection, 'interner> Parser<'collection, 'interner> {
                 let left_paren_range = left_paren.source_range();
                 let right_paren =
                     self.expect(TokenKind::RightParen, "right parenthesis", || {
-                        vec![
-                            Label::secondary(left_paren.source_id, left_paren_range.clone())
-                                .with_message("opened here"),
-                        ]
+                        vec![Label::secondary(
+                            left_paren.location.file_id,
+                            left_paren_range.clone(),
+                        )
+                        .with_message("opened here")]
                     })?;
 
                 let left_range = left_paren.source_range();
@@ -627,7 +636,7 @@ impl<'collection, 'interner> Parser<'collection, 'interner> {
                 self.expect(TokenKind::Dot, "`.`", Vec::new)?;
                 let method = self.expect(TokenKind::Identifier, "ident", || {
                     vec![
-                        Label::secondary(next_token.source_id, next_token.source_range())
+                        Label::secondary(next_token.location.file_id, next_token.source_range())
                             .with_message("superclass method expected"),
                     ]
                 })?;
@@ -655,7 +664,7 @@ impl<'collection, 'interner> Parser<'collection, 'interner> {
                         msg, next_token_lexeme
                     ))
                     .with_labels(vec![Label::primary(
-                        next_token.source_id,
+                        next_token.location.file_id,
                         next_token.source_range(),
                     )]))
             }
@@ -675,7 +684,8 @@ impl<'collection, 'interner> Parser<'collection, 'interner> {
 
         let mut labels = labels();
         labels.push(
-            Label::primary(next.source_id, next.source_range()).with_message("expected here"),
+            Label::primary(next.location.file_id, next.source_range())
+                .with_message("expected here"),
         );
 
         let next_lexeme = self.interner.resolve(&next.lexeme);

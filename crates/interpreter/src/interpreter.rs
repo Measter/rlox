@@ -226,7 +226,7 @@ impl Interpreter {
                     let diag = Diagnostic::error()
                         .with_message("superclass must be a class")
                         .with_labels(vec![Label::primary(
-                            super_name.source_id,
+                            super_name.location.file_id,
                             super_name.source_range(),
                         )
                         .with_message(super_obj.kind())]);
@@ -251,9 +251,7 @@ impl Interpreter {
             let super_token = Token {
                 kind: TokenKind::Super,
                 lexeme: interner.get("super").unwrap(),
-                source_id: name.source_id,
-                source_start: name.source_start,
-                source_len: name.source_len,
+                location: name.location,
             };
             env.define(super_token, None, Object::LoxClassSuper(def.clone()))
         }
@@ -381,7 +379,7 @@ impl Interpreter {
                     let diag = Diagnostic::error()
                         .with_message("only class instances have properties")
                         .with_labels(vec![
-                            Label::primary(name.source_id, name.source_range()),
+                            Label::primary(name.location.file_id, name.source_range()),
                             Label::secondary(object.source_id(), object.source_range())
                                 .with_message(obj.kind()),
                         ]);
@@ -413,7 +411,7 @@ impl Interpreter {
                     let diag = Diagnostic::error()
                         .with_message("only class instances have properties")
                         .with_labels(vec![
-                            Label::primary(name.source_id, name.source_range()),
+                            Label::primary(name.location.file_id, name.source_range()),
                             Label::secondary(object.source_id(), object.source_range())
                                 .with_message(obj.kind()),
                         ]);
@@ -455,7 +453,7 @@ impl Interpreter {
             let diag = Diagnostic::error()
                 .with_message("expected super to be a superclass")
                 .with_labels(vec![Label::primary(
-                    keyword.source_id,
+                    keyword.location.file_id,
                     keyword.source_range(),
                 )
                 .with_message(super_class.kind())]);
@@ -475,7 +473,7 @@ impl Interpreter {
             let diag = Diagnostic::error()
                 .with_message("expected super to be a superclass")
                 .with_labels(vec![Label::primary(
-                    keyword.source_id,
+                    keyword.location.file_id,
                     keyword.source_range(),
                 )
                 .with_message(class_instance.kind())]);
@@ -488,7 +486,7 @@ impl Interpreter {
             let diag = Diagnostic::error()
                 .with_message("undefined property")
                 .with_labels(vec![Label::primary(
-                    method.source_id,
+                    method.location.file_id,
                     method.source_range(),
                 )]);
             return Err(diag);
@@ -584,7 +582,7 @@ impl Interpreter {
                         operator_lexeme
                     ))
                     .with_labels(vec![Label::primary(
-                        operator.source_id,
+                        operator.location.file_id,
                         operator.source_range(),
                     )]);
 
@@ -613,12 +611,12 @@ impl Interpreter {
             (TokenKind::Bang, obj) => Ok(Object::Boolean(!obj.is_truthy())),
 
             (TokenKind::Minus, right) => {
-                let range_start = operator.source_start;
+                let range_start = operator.location.source_start;
                 let range_end = right_expr.source_range().end;
                 let diag = Diagnostic::error()
                     .with_message(format!("unable to negate a {}", right.kind()))
                     .with_labels(vec![Label::primary(
-                        operator.source_id,
+                        operator.location.file_id,
                         range_start..range_end,
                     )]);
 
@@ -632,7 +630,7 @@ impl Interpreter {
                         operator_lexeme
                     ))
                     .with_labels(vec![Label::primary(
-                        operator.source_id,
+                        operator.location.file_id,
                         operator.source_range(),
                     )]);
 
@@ -717,7 +715,7 @@ impl Interpreter {
                 }
 
                 let labels = vec![
-                    Label::primary(operator.source_id, operator.source_range()),
+                    Label::primary(operator.location.file_id, operator.source_range()),
                     make_secondary_variable_label(left_expr, &left, &self.environment),
                     make_secondary_variable_label(right_expr, &right, &self.environment),
                 ];

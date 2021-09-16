@@ -1,6 +1,7 @@
 use std::ops::Range;
 
 use lasso::Spur;
+use rlox::source_file::SourceLocation;
 
 use crate::FileId;
 
@@ -117,9 +118,7 @@ impl TokenKind {
 pub struct Token {
     pub kind: TokenKind,
     pub lexeme: Spur,
-    pub source_id: FileId,
-    pub source_start: usize,
-    pub source_len: usize,
+    pub location: SourceLocation,
 }
 
 impl Token {
@@ -127,15 +126,17 @@ impl Token {
         Self {
             kind: TokenKind::Identifier,
             lexeme,
-            source_id,
-            source_start: range.start,
-            source_len: range.end - range.start,
+            location: SourceLocation {
+                file_id: source_id,
+                source_start: range.start,
+                len: range.end - range.start,
+            },
         }
     }
 }
 
 impl Token {
     pub fn source_range(self) -> Range<usize> {
-        self.source_start..(self.source_start + self.source_len)
+        self.location.range()
     }
 }

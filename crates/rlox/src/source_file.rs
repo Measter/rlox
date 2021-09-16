@@ -1,6 +1,8 @@
 // Basically a minor modification to codespan_reportings SimpleFiles because I wanted
 // a more strongly-typed file ID.
 
+use std::ops::Range;
+
 use codespan_reporting::files::{Files, SimpleFile};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -12,6 +14,37 @@ impl FileId {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SourceLocation {
+    pub file_id: FileId,
+    pub source_start: usize,
+    pub len: usize,
+}
+
+impl Default for SourceLocation {
+    fn default() -> Self {
+        Self {
+            file_id: FileId::blank(),
+            source_start: Default::default(),
+            len: Default::default(),
+        }
+    }
+}
+
+impl SourceLocation {
+    pub fn new(file_id: FileId, range: Range<usize>) -> Self {
+        Self {
+            file_id,
+            source_start: range.start,
+            len: range.end - range.start,
+        }
+    }
+    pub fn range(&self) -> Range<usize> {
+        self.source_start..(self.source_start + self.len)
+    }
+}
+
+#[derive(Debug, Default)]
 pub struct SourceFile {
     files: Vec<SimpleFile<String, String>>,
 }

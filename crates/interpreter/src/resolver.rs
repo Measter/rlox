@@ -1,8 +1,8 @@
-use std::{collections::HashMap, ops::Range, rc::Rc};
+use std::{collections::HashMap, rc::Rc};
 
 use codespan_reporting::diagnostic::{Diagnostic, Label};
 use lasso::{Rodeo, Spur};
-use rlox::source_file::FileId;
+use rlox::source_file::{FileId, SourceLocation};
 
 use crate::{
     ast::{Expression, ExpressionId, Function, Statement},
@@ -20,8 +20,7 @@ enum InitState {
 
 struct Variable {
     init_state: InitState,
-    source_range: Range<usize>,
-    source_id: FileId,
+    location: SourceLocation,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -80,17 +79,16 @@ impl<'a> Resolver<'a> {
         if let Some(scope) = self.scopes.last_mut() {
             let var = Variable {
                 init_state: InitState::PreDeclare,
-                source_range: name.source_range(),
-                source_id: name.source_id,
+                location: name.location,
             };
             if let Some(already_contained) = scope.insert(name.lexeme, var) {
                 let diag = Diagnostic::error()
                     .with_message("a variable with this name already exists in this scope")
                     .with_labels(vec![
-                        Label::primary(name.source_id, name.source_range()),
+                        Label::primary(name.location.file_id, name.source_range()),
                         Label::secondary(
-                            already_contained.source_id,
-                            already_contained.source_range,
+                            already_contained.location.file_id,
+                            already_contained.location.range(),
                         )
                         .with_message("previously defined here"),
                     ]);
@@ -108,8 +106,7 @@ impl<'a> Resolver<'a> {
                 name.lexeme,
                 Variable {
                     init_state: InitState::Declared,
-                    source_range: name.source_range(),
-                    source_id: name.source_id,
+                    location: name.location,
                 },
             );
         }
@@ -175,7 +172,7 @@ impl<'a> Resolver<'a> {
                 if self.current_function == FunctionType::None {
                     let diag = Diagnostic::error()
                         .with_message("can't return from top-level code")
-                        .with_labels(vec![Label::primary(keyword.source_id, source_range)]);
+                        .with_labels(vec![Label::primary(keyword.location.file_id, source_range)]);
                     return Err(diag);
                 }
 
@@ -183,7 +180,10 @@ impl<'a> Resolver<'a> {
                     if self.current_function == FunctionType::Initializer {
                         let diag = Diagnostic::error()
                             .with_message("can't return a value from a class initializer")
-                            .with_labels(vec![Label::primary(keyword.source_id, source_range)]);
+                            .with_labels(vec![Label::primary(
+                                keyword.location.file_id,
+                                source_range,
+                            )]);
                         return Err(diag);
                     }
                     self.resolve_expression(value)?;
@@ -223,7 +223,7 @@ impl<'a> Resolver<'a> {
                     let diag = Diagnostic::error()
                         .with_message("A class can't inherit from itself")
                         .with_labels(vec![Label::primary(
-                            super_name.source_id,
+                            super_name.location.file_id,
                             super_name.source_range(),
                         )]);
                     return Err(diag);
@@ -242,8 +242,7 @@ impl<'a> Resolver<'a> {
                 self.interner.get("super").unwrap(),
                 Variable {
                     init_state: InitState::Declared,
-                    source_range: name.source_range(),
-                    source_id: name.source_id,
+                    location: name.location,
                 },
             );
         }
@@ -253,8 +252,7 @@ impl<'a> Resolver<'a> {
             self.interner.get_or_intern_static("this"),
             Variable {
                 init_state: InitState::Declared,
-                source_range: 0..0,
-                source_id: self.file_id,
+                location: SourceLocation::new(self.file_id, 0..0),
             },
         );
 
@@ -329,7 +327,7 @@ impl<'a> Resolver<'a> {
                     let diag = Diagnostic::error()
                         .with_message("can't use `super` outside of a subclass")
                         .with_labels(vec![Label::primary(
-                            keyword.source_id,
+                            keyword.location.file_id,
                             keyword.source_range(),
                         )]);
                     return Err(diag);
@@ -342,7 +340,7 @@ impl<'a> Resolver<'a> {
                     let diag = Diagnostic::error()
                         .with_message("can't use `this` outside of a class")
                         .with_labels(vec![Label::primary(
-                            keyword.source_id,
+                            keyword.location.file_id,
                             keyword.source_range(),
                         )]);
                     return Err(diag);

@@ -2,6 +2,7 @@ use std::{iter::Peekable, str::CharIndices};
 
 use codespan_reporting::diagnostic::{Diagnostic, Label};
 use lasso::Rodeo;
+use rlox::source_file::SourceLocation;
 
 use crate::{
     token::{Token, TokenKind},
@@ -81,9 +82,11 @@ impl<'a> Lexer<'a> {
         scanner.tokens.push(Token {
             kind: TokenKind::Eof,
             lexeme: scanner.interner.get_or_intern_static("<EOF>"),
-            source_start: scanner.source.len(),
-            source_len: 0,
-            source_id: scanner.file_id,
+            location: SourceLocation {
+                file_id: scanner.file_id,
+                source_start: scanner.source.len(),
+                len: 0,
+            },
         });
 
         diags.is_empty().then(|| scanner.tokens).ok_or(diags)
@@ -171,9 +174,11 @@ impl<'a> Lexer<'a> {
         self.tokens.push(Token {
             kind,
             lexeme: self.interner.get_or_intern(lexeme),
-            source_start: self.cur_token_start,
-            source_len: lexeme.len(),
-            source_id: self.file_id,
+            location: SourceLocation {
+                file_id: self.file_id,
+                source_start: self.cur_token_start,
+                len: lexeme.len(),
+            },
         });
     }
 
@@ -211,9 +216,11 @@ impl<'a> Lexer<'a> {
         self.tokens.push(Token {
             kind: TokenKind::Number(literal),
             lexeme: self.interner.get_or_intern(lexeme),
-            source_start: self.cur_token_start,
-            source_len: lexeme.len(),
-            source_id: self.file_id,
+            location: SourceLocation {
+                file_id: self.file_id,
+                source_start: self.cur_token_start,
+                len: lexeme.len(),
+            },
         });
 
         Ok(())
@@ -241,9 +248,11 @@ impl<'a> Lexer<'a> {
         self.tokens.push(Token {
             kind: TokenKind::String(self.interner.get_or_intern(literal)),
             lexeme: self.interner.get_or_intern(lexeme),
-            source_start: self.cur_token_start,
-            source_len: lexeme.len(),
-            source_id: self.file_id,
+            location: SourceLocation {
+                file_id: self.file_id,
+                source_start: self.cur_token_start,
+                len: lexeme.len(),
+            },
         });
 
         Ok(())
@@ -261,9 +270,11 @@ impl<'a> Lexer<'a> {
         self.tokens.push(Token {
             kind,
             lexeme: self.interner.get_or_intern(lexeme),
-            source_start: self.cur_token_start,
-            source_len: lexeme.len(),
-            source_id: self.file_id,
+            location: SourceLocation {
+                file_id: self.file_id,
+                source_start: self.cur_token_start,
+                len: lexeme.len(),
+            },
         })
     }
 }

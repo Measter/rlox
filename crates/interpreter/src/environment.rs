@@ -9,7 +9,7 @@ use std::{
 use codespan_reporting::diagnostic::{Diagnostic, Label};
 use fnv::FnvHashMap as HashMap;
 use lasso::{Rodeo, Spur};
-use rlox::source_file::FileId;
+use rlox::source_file::{FileId, SourceLocation};
 
 use crate::{
     lox_callable::{
@@ -143,16 +143,14 @@ impl Object {
 #[derive(Debug)]
 struct StoredVariable {
     value: Object,
-    source_range: Range<usize>,
-    source_id: FileId,
+    location: SourceLocation,
 }
 
 impl Default for StoredVariable {
     fn default() -> Self {
         Self {
             value: Object::Uninitialized,
-            source_range: Default::default(),
-            source_id: FileId::blank(),
+            location: SourceLocation::default(),
         }
     }
 }
@@ -188,8 +186,7 @@ impl Environment {
                     name: "clock",
                     arity: 0,
                 })),
-                source_range: 0..0,
-                source_id: FileId::blank(),
+                location: SourceLocation::default(),
             },
         );
         globals
@@ -216,8 +213,7 @@ impl Environment {
 
         let variable = self.stored_variables.entry(name.lexeme).or_default();
         variable.value = value;
-        variable.source_range = full_range;
-        variable.source_id = name.source_id;
+        variable.location = SourceLocation::new(name.location.file_id, full_range);
     }
 
     pub fn assign(
@@ -230,15 +226,20 @@ impl Environment {
         match self.stored_variables.get_mut(&name.lexeme) {
             Some(v) => {
                 v.value = value;
-                v.source_range = name.source_start..expression_range.end;
-                v.source_id = name.source_id;
+                v.location = SourceLocation::new(
+                    name.location.file_id,
+                    name.location.source_start..expression_range.end,
+                );
                 Ok(())
             }
             None => {
                 let name_lexeme = interner.resolve(&name.lexeme);
                 let diag = Diagnostic::error()
                     .with_message(format!("undefined variable `{}`", name_lexeme))
-                    .with_labels(vec![Label::primary(name.source_id, name.source_range())]);
+                    .with_labels(vec![Label::primary(
+                        name.location.file_id,
+                        name.source_range(),
+                    )]);
 
                 Err(diag)
             }
@@ -272,8 +273,8 @@ impl Environment {
                 let diag = Diagnostic::warning()
                     .with_message(format!("variable `{}` was uninitialized", name_lexeme))
                     .with_labels(vec![
-                        Label::primary(name.source_id, name.source_range()),
-                        Label::secondary(v.source_id, v.source_range.clone())
+                        Label::primary(name.location.file_id, name.source_range()),
+                        Label::secondary(v.location.file_id, v.location.range())
                             .with_message("variable defined here"),
                     ]);
 
@@ -284,7 +285,10 @@ impl Environment {
                 let name_lexeme = interner.resolve(&name.lexeme);
                 let diag = Diagnostic::error()
                     .with_message(format!("undefined variable `{}`", name_lexeme))
-                    .with_labels(vec![Label::primary(name.source_id, name.source_range())]);
+                    .with_labels(vec![Label::primary(
+                        name.location.file_id,
+                        name.source_range(),
+                    )]);
 
                 Err(diag)
             }
@@ -333,6 +337,6 @@ impl Environment {
     pub fn source(&self, name: Token) -> Option<(FileId, Range<usize>)> {
         self.stored_variables
             .get(&name.lexeme)
-            .map(|v| (v.source_id, v.source_range.clone()))
+            .map(|v| (v.location.file_id, v.location.range()))
     }
 }

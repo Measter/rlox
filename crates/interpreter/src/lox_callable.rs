@@ -79,7 +79,7 @@ impl LoxCallable {
         let mut closure = Environment::with_parent(self.closure.clone());
         let this_token = Token::make_ident(
             interner.get("this").unwrap(),
-            self.declaration.name.source_id,
+            self.declaration.name.location.file_id,
             self.declaration.name.source_range(),
         );
         closure.define(this_token, None, Object::LoxClassInstance(instance));
@@ -132,7 +132,7 @@ impl Callable for LoxCallable {
         if self.is_initializer {
             let this_token = Token::make_ident(
                 interner.get("this").unwrap(),
-                self.declaration.name.source_id,
+                self.declaration.name.location.file_id,
                 self.declaration.name.source_range(),
             );
             let closure = self.closure.borrow();
@@ -202,7 +202,7 @@ impl Callable for LoxClassConstructor {
 
         let init_token = Token::make_ident(
             interner.get("init").unwrap(),
-            self.definition.name.source_id,
+            self.definition.name.location.file_id,
             self.definition.name.source_range(),
         );
         if let Some(init) = self.definition.find_method(init_token) {
@@ -216,7 +216,7 @@ impl Callable for LoxClassConstructor {
     fn arity(&self, interner: &Rodeo) -> usize {
         let init_token = Token::make_ident(
             interner.get("init").unwrap(),
-            self.definition.name.source_id,
+            self.definition.name.location.file_id,
             self.definition.name.source_range(),
         );
         self.definition
@@ -259,7 +259,10 @@ impl LoxClassInstance {
         let property_name = interner.resolve(&name.lexeme);
         let diag = Diagnostic::error()
             .with_message(format!("undefined property '{}'", property_name))
-            .with_labels(vec![Label::primary(name.source_id, name.source_range())]);
+            .with_labels(vec![Label::primary(
+                name.location.file_id,
+                name.source_range(),
+            )]);
 
         Err(diag)
     }
