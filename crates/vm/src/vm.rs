@@ -1,11 +1,13 @@
 use core::panic;
 use std::{
     convert::TryInto,
-    ops::{Add, Div, Mul, Sub},
+    ops::{Add, Div, Mul, Rem, Sub},
 };
 
+use codespan_reporting::diagnostic::Diagnostic;
 use color_eyre::Result;
-use rlox::source_file::SourceFile;
+use lasso::Rodeo;
+use rlox::{source_file::FileId, DiagnosticEmitter};
 
 use crate::{
     chunk::{Chunk, OpCode},
@@ -48,7 +50,13 @@ impl Vm {
         }
     }
 
-    pub fn interpret(&mut self, chunk: &Chunk, sources: &SourceFile) -> Result<()> {
+    pub fn interpret(
+        &mut self,
+        chunk: &Chunk,
+        emitter: &DiagnosticEmitter<'_>,
+        file_id: FileId,
+        interner: &Rodeo,
+    ) -> Result<(), Diagnostic<FileId>> {
         let mut ip = chunk.code.iter().copied().zip(0..);
         loop {
             let (next_instruction, idx) = ip
@@ -59,7 +67,7 @@ impl Vm {
 
             if self.trace {
                 eprintln!("{:?}", self.value_stack);
-                chunk.disassemble_instruction(sources, idx);
+                chunk.disassemble_instruction(emitter, idx);
             }
 
             match next_instruction {
@@ -67,6 +75,7 @@ impl Vm {
                 OpCode::Divide => self.binary_op(Div::div),
                 OpCode::Subtract => self.binary_op(Sub::sub),
                 OpCode::Multiply => self.binary_op(Mul::mul),
+                OpCode::Modulo => self.binary_op(Rem::rem),
                 OpCode::Negate => {
                     match self.value_stack.last_mut() {
                         Some(Value::Number(num)) => *num = -*num,
@@ -82,7 +91,7 @@ impl Vm {
                         .value_stack
                         .pop()
                         .expect("ICE: Expected value on stack");
-                    println!("{:?}", value);
+                    value.display();
                     return Ok(());
                 }
             }

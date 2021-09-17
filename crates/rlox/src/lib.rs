@@ -31,6 +31,10 @@ impl<'a> DiagnosticEmitter<'a> {
         self.file.add(name, contents)
     }
 
+    pub fn sources(&self) -> &SourceFile {
+        &self.file
+    }
+
     pub fn emit_diagnostic(&mut self, diag: &Diagnostic<FileId>) -> Result<()> {
         codespan_reporting::term::emit(&mut self.stderr, &self.cfg, &self.file, diag)
             .with_context(|| "Failed to write diagnostic")?;
