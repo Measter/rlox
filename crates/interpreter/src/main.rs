@@ -7,18 +7,16 @@ use codespan_reporting::{
 use color_eyre::{eyre::eyre, eyre::Context, Result};
 use lasso::Rodeo;
 use resolver::Resolver;
-use rlox::{source_file::FileId, DiagnosticEmitter};
+use rlox::{lexer::Lexer, source_file::FileId, DiagnosticEmitter};
 
 mod ast;
 mod environment;
 mod interpreter;
-mod lexer;
 mod lox_callable;
 mod parser;
 mod resolver;
-mod token;
 
-use crate::{interpreter::Interpreter, lexer::Lexer, parser::Parser};
+use crate::{interpreter::Interpreter, parser::Parser};
 
 fn main() -> Result<()> {
     color_eyre::install()?;

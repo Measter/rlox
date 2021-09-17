@@ -2,9 +2,9 @@ use std::{iter::Peekable, str::CharIndices};
 
 use codespan_reporting::diagnostic::{Diagnostic, Label};
 use lasso::Rodeo;
-use rlox::source_file::SourceLocation;
 
 use crate::{
+    source_file::SourceLocation,
     token::{Token, TokenKind},
     FileId,
 };

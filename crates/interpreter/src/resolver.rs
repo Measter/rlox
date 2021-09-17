@@ -2,12 +2,14 @@ use std::{collections::HashMap, rc::Rc};
 
 use codespan_reporting::diagnostic::{Diagnostic, Label};
 use lasso::{Rodeo, Spur};
-use rlox::source_file::{FileId, SourceLocation};
+use rlox::{
+    source_file::{FileId, SourceLocation},
+    token::Token,
+};
 
 use crate::{
     ast::{Expression, ExpressionId, Function, Statement},
     interpreter::Interpreter,
-    token::Token,
 };
 
 pub type ResolveResult = Result<(), Diagnostic<FileId>>;

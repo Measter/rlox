@@ -1,9 +1,8 @@
 use std::ops::Range;
 
 use lasso::Spur;
-use rlox::source_file::SourceLocation;
 
-use crate::FileId;
+use crate::{source_file::SourceLocation, FileId};
 
 #[derive(Debug, Copy, Clone, PartialEq)]
 pub enum TokenKind {

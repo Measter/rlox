@@ -1,6 +1,8 @@
 use std::{ops::Range, rc::Rc};
 
-use crate::{token::Token, FileId};
+use rlox::token::Token;
+
+use crate::FileId;
 
 #[derive(Debug, PartialEq, Eq, Hash, Clone, Copy)]
 pub struct ExpressionId {
