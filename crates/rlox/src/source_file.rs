@@ -50,7 +50,7 @@ pub struct SourceFile {
 }
 
 impl SourceFile {
-    pub fn new() -> Self {
+    pub const fn new() -> Self {
         SourceFile { files: Vec::new() }
     }
 
