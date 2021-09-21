@@ -16,11 +16,18 @@ pub enum OpCode {
     Add,
     Constant,
     Divide,
+    False,
+    Equal,
+    Greater,
+    Less,
     Negate,
     Multiply,
     Modulo,
+    Nil,
+    Not,
     Return,
     Subtract,
+    True,
 }
 
 impl OpCode {
@@ -28,8 +35,21 @@ impl OpCode {
         use OpCode::*;
         match self {
             Constant => 2,
-            Add | Divide | Negate | Multiply | Modulo | Subtract => 1,
+            Add | Divide | Multiply | Modulo | Negate | Not | Subtract => 1,
             Return => 1,
+            False | True | Nil => 1,
+            Equal | Greater | Less => 1,
+        }
+    }
+
+    pub fn binary_operator_str(self) -> &'static str {
+        match self {
+            OpCode::Add => "+",
+            OpCode::Divide => "/",
+            OpCode::Subtract | OpCode::Negate => "-",
+            OpCode::Multiply => "*",
+            OpCode::Modulo => "%",
+            _ => "",
         }
     }
 }

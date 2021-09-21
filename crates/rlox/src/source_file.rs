@@ -39,8 +39,23 @@ impl SourceLocation {
             len: range.end - range.start,
         }
     }
+
     pub fn range(&self) -> Range<usize> {
         self.source_start..(self.source_start + self.len)
+    }
+
+    pub fn merge(self, other: Self) -> Self {
+        assert!(self.file_id == other.file_id);
+        let self_end = self.source_start + self.len;
+        let other_end = other.source_start + other.len;
+
+        let start = self.source_start.min(other.source_start);
+
+        Self {
+            file_id: self.file_id,
+            source_start: self.source_start.min(other.source_start),
+            len: self_end.max(other_end) - start,
+        }
     }
 }
 

@@ -35,13 +35,14 @@ fn main() -> Result<()> {
     }
 
     let stderr = StandardStream::stderr(ColorChoice::Always);
+    let stdout = std::io::stdout();
     let mut emitter = DiagnosticEmitter::new(&stderr);
     let mut interner = Rodeo::default();
     // These three are used when instantiating a class.
     interner.get_or_intern_static("this");
     interner.get_or_intern_static("init");
     interner.get_or_intern_static("super");
-    let mut vm = Vm::new(trace);
+    let mut vm = Vm::new(trace, stdout.lock());
 
     for file in args {
         run_file(

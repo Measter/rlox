@@ -64,6 +64,28 @@ struct ParseRule {
 impl ParseRule {
     fn get_rule(kind: TokenKind) -> Self {
         match kind {
+            TokenKind::Bang => Self {
+                prefix: Some(|c| c.unary()),
+                ..Default::default()
+            },
+            TokenKind::BangEqual => Self {
+                infix: Some(|c| c.binary()),
+                ..Default::default()
+            },
+            TokenKind::EqualEqual => Self {
+                prefix: None,
+                infix: Some(|c| c.binary()),
+                precedence: Precedence::Equality,
+            },
+            TokenKind::Greater
+            | TokenKind::GreaterEqual
+            | TokenKind::Less
+            | TokenKind::LessEqual => Self {
+                prefix: None,
+                infix: Some(|c| c.binary()),
+                precedence: Precedence::Comparison,
+            },
+
             TokenKind::LeftParen => Self {
                 prefix: Some(|c| c.grouping()),
                 ..Default::default()
@@ -73,19 +95,23 @@ impl ParseRule {
                 infix: Some(|c| c.binary()),
                 precedence: Precedence::Term,
             },
-            TokenKind::Plus => Self {
-                prefix: None,
-                infix: Some(|c| c.binary()),
-                precedence: Precedence::Term,
+            TokenKind::NilLiteral | TokenKind::BooleanLiteral(_) => Self {
+                prefix: Some(|c| c.literal()),
+                ..Default::default()
+            },
+            TokenKind::NumberLiteral(_) => Self {
+                prefix: Some(|c| c.number()),
+                ..Default::default()
             },
             TokenKind::Percent | TokenKind::Slash | TokenKind::Star => Self {
                 prefix: None,
                 infix: Some(|c| c.binary()),
                 precedence: Precedence::Factor,
             },
-            TokenKind::NumberLiteral(_) => Self {
-                prefix: Some(|c| c.number()),
-                ..Default::default()
+            TokenKind::Plus => Self {
+                prefix: None,
+                infix: Some(|c| c.binary()),
+                precedence: Precedence::Term,
             },
             _ => Default::default(),
         }
@@ -98,7 +124,6 @@ pub struct Compiler<'collection, 'interner> {
     next_idx: usize,
     current_token: Token,
     interner: &'interner Rodeo,
-    panic_mode: bool,
     chunk: Chunk,
 }
 
@@ -114,7 +139,6 @@ impl<'collection, 'interner> Compiler<'collection, 'interner> {
                 lexeme: interner.get("this").unwrap(),
                 location: SourceLocation::default(),
             },
-            panic_mode: false,
             chunk: Chunk::new(),
         }
     }
@@ -150,7 +174,40 @@ impl<'collection, 'interner> Compiler<'collection, 'interner> {
             TokenKind::Percent => self.chunk.write(OpCode::Modulo, op_type.location),
             TokenKind::Slash => self.chunk.write(OpCode::Divide, op_type.location),
             TokenKind::Star => self.chunk.write(OpCode::Multiply, op_type.location),
+
+            TokenKind::EqualEqual => self.chunk.write(OpCode::Equal, op_type.location),
+            TokenKind::Greater => self.chunk.write(OpCode::Greater, op_type.location),
+            TokenKind::Less => self.chunk.write(OpCode::Less, op_type.location),
+
+            TokenKind::BangEqual => {
+                self.chunk.write(OpCode::Equal, op_type.location);
+                self.chunk.write(OpCode::Not, op_type.location);
+            }
+            TokenKind::GreaterEqual => {
+                self.chunk.write(OpCode::Less, op_type.location);
+                self.chunk.write(OpCode::Not, op_type.location);
+            }
+            TokenKind::LessEqual => {
+                self.chunk.write(OpCode::Greater, op_type.location);
+                self.chunk.write(OpCode::Not, op_type.location);
+            }
             t => panic!("ICE: Invalid binary token: {:?}", t),
+        }
+
+        Ok(())
+    }
+
+    fn literal(&mut self) -> ParseResult<()> {
+        let literal_token = self.previous();
+        match literal_token.kind {
+            TokenKind::BooleanLiteral(true) => {
+                self.chunk.write(OpCode::True, literal_token.location)
+            }
+            TokenKind::BooleanLiteral(false) => {
+                self.chunk.write(OpCode::False, literal_token.location)
+            }
+            TokenKind::NilLiteral => self.chunk.write(OpCode::Nil, literal_token.location),
+            _ => panic!("ICE: None-literal token kind {:?}", literal_token.kind),
         }
 
         Ok(())
@@ -193,6 +250,7 @@ impl<'collection, 'interner> Compiler<'collection, 'interner> {
 
         match operator_type.kind {
             TokenKind::Minus => self.chunk.write(OpCode::Negate, operator_type.location),
+            TokenKind::Bang => self.chunk.write(OpCode::Not, operator_type.location),
             t => panic!("ICE: Unexpected token kind in unary: {:?}", t),
         }
 
