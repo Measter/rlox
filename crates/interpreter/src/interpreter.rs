@@ -652,57 +652,34 @@ impl Interpreter {
         let left = self.evaluate_expression(left_expr, emitter, interner)?;
         let right = self.evaluate_expression(right_expr, emitter, interner)?;
 
+        use Object::*;
+        use TokenKind::*;
         let res = match (operator.kind, left, right) {
             // Arithmetic operators
-            (TokenKind::Minus, Object::Number(left), Object::Number(right)) => {
-                Object::Number(left - right)
-            }
-            (TokenKind::Slash, Object::Number(left), Object::Number(right)) => {
-                Object::Number(left / right)
-            }
-            (TokenKind::Percent, Object::Number(left), Object::Number(right)) => {
-                Object::Number(left % right)
-            }
-            (TokenKind::Star, Object::Number(left), Object::Number(right)) => {
-                Object::Number(left * right)
-            }
-            (TokenKind::Plus, Object::Number(left), Object::Number(right)) => {
-                Object::Number(left + right)
-            }
+            (Minus, Number(left), Number(right)) => Number(left - right),
+            (Slash, Number(left), Number(right)) => Number(left / right),
+            (Percent, Number(left), Number(right)) => Number(left % right),
+            (Star, Number(left), Number(right)) => Number(left * right),
+            (Plus, Number(left), Number(right)) => Number(left + right),
 
             // String concatination
-            (TokenKind::Plus, Object::String(left), Object::String(right)) => {
+            (Plus, String(left), String(right)) => {
                 let mut left = left.as_str(interner).to_owned();
                 left += right.as_str(interner);
-                Object::String(StringObject::Runtime(Rc::new(left)))
+                String(StringObject::Runtime(Rc::new(left)))
             }
 
             // Comparison operators
-            (TokenKind::Greater, Object::Number(left), Object::Number(right)) => {
-                Object::Boolean(left > right)
-            }
-            (TokenKind::GreaterEqual, Object::Number(left), Object::Number(right)) => {
-                Object::Boolean(left >= right)
-            }
-            (TokenKind::Less, Object::Number(left), Object::Number(right)) => {
-                Object::Boolean(left < right)
-            }
-            (TokenKind::LessEqual, Object::Number(left), Object::Number(right)) => {
-                Object::Boolean(left <= right)
-            }
-            (TokenKind::BangEqual, left, right) => Object::Boolean(!(left.eq(&right, interner))),
-            (TokenKind::EqualEqual, left, right) => Object::Boolean(left.eq(&right, interner)),
+            (Greater, Number(left), Number(right)) => Boolean(left > right),
+            (GreaterEqual, Number(left), Number(right)) => Boolean(left >= right),
+            (Less, Number(left), Number(right)) => Boolean(left < right),
+            (LessEqual, Number(left), Number(right)) => Boolean(left <= right),
+            (BangEqual, left, right) => Boolean(!(left.eq(&right, interner))),
+            (EqualEqual, left, right) => Boolean(left.eq(&right, interner)),
 
             // Unsupported operations
             (
-                TokenKind::Minus
-                | TokenKind::Plus
-                | TokenKind::Slash
-                | TokenKind::Star
-                | TokenKind::Greater
-                | TokenKind::GreaterEqual
-                | TokenKind::Less
-                | TokenKind::LessEqual,
+                Minus | Plus | Slash | Star | Greater | GreaterEqual | Less | LessEqual,
                 left,
                 right,
             ) => {
