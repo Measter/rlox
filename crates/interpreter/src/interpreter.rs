@@ -19,10 +19,10 @@ pub type EvaluateResult = Result<Object, Diagnostic<FileId>>;
 
 fn get_literal(kind: TokenKind) -> Object {
     match kind {
-        TokenKind::String(s) => Object::String(StringObject::Literal(s)),
-        TokenKind::Number(n) => Object::Number(n),
-        TokenKind::Boolean(b) => Object::Boolean(b),
-        TokenKind::Nil => Object::Nil,
+        TokenKind::StringLiteral(s) => Object::String(StringObject::Literal(s)),
+        TokenKind::NumberLiteral(n) => Object::Number(n),
+        TokenKind::BooleanLiteral(b) => Object::Boolean(b),
+        TokenKind::NilLiteral => Object::Nil,
         _ => panic!("ICE: Expected literal, found {:?}", kind),
     }
 }

@@ -22,17 +22,17 @@ fn get_ident_kind(ident: &str) -> TokenKind {
         "and" => TokenKind::And,
         "class" => TokenKind::Class,
         "else" => TokenKind::Else,
-        "false" => TokenKind::Boolean(false),
+        "false" => TokenKind::BooleanLiteral(false),
         "for" => TokenKind::For,
         "fun" => TokenKind::Fun,
         "if" => TokenKind::If,
-        "nil" => TokenKind::Nil,
+        "nil" => TokenKind::NilLiteral,
         "or" => TokenKind::Or,
         "print" => TokenKind::Print,
         "return" => TokenKind::Return,
         "super" => TokenKind::Super,
         "this" => TokenKind::This,
-        "true" => TokenKind::Boolean(true),
+        "true" => TokenKind::BooleanLiteral(true),
         "var" => TokenKind::Var,
         "while" => TokenKind::While,
         _ => TokenKind::Identifier,
@@ -214,7 +214,7 @@ impl<'a> Lexer<'a> {
         };
 
         self.tokens.push(Token {
-            kind: TokenKind::Number(literal),
+            kind: TokenKind::NumberLiteral(literal),
             lexeme: self.interner.get_or_intern(lexeme),
             location: SourceLocation {
                 file_id: self.file_id,
@@ -246,7 +246,7 @@ impl<'a> Lexer<'a> {
         let literal = lexeme.trim_matches('"');
 
         self.tokens.push(Token {
-            kind: TokenKind::String(self.interner.get_or_intern(literal)),
+            kind: TokenKind::StringLiteral(self.interner.get_or_intern(literal)),
             lexeme: self.interner.get_or_intern(lexeme),
             location: SourceLocation {
                 file_id: self.file_id,

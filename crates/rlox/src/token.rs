@@ -33,10 +33,10 @@ pub enum TokenKind {
     Identifier,
 
     // Literals
-    String(Spur),
-    Number(f64),
-    Boolean(bool),
-    Nil,
+    StringLiteral(Spur),
+    NumberLiteral(f64),
+    BooleanLiteral(bool),
+    NilLiteral,
 
     // Keywords
     And,
@@ -66,7 +66,10 @@ impl PartialEq<TokenKind> for &'_ TokenKind {
 impl TokenKind {
     pub fn is_literal(self) -> bool {
         use TokenKind::*;
-        matches!(self, String(_) | Number(_) | Boolean(_) | Nil)
+        matches!(
+            self,
+            StringLiteral(_) | NumberLiteral(_) | BooleanLiteral(_) | NilLiteral
+        )
     }
 
     pub fn is_binary(self) -> bool {

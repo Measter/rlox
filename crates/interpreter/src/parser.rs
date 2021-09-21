@@ -309,7 +309,7 @@ impl<'collection, 'interner> Parser<'collection, 'interner> {
         let condition = condition.unwrap_or_else(|| {
             Expression::literal(
                 Token {
-                    kind: TokenKind::Boolean(true),
+                    kind: TokenKind::BooleanLiteral(true),
                     lexeme: self.interner.get_or_intern_static("true"),
                     location: SourceLocation {
                         file_id: self.file_id,

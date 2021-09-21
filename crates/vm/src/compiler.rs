@@ -83,7 +83,7 @@ impl ParseRule {
                 infix: Some(|c| c.binary()),
                 precedence: Precedence::Factor,
             },
-            TokenKind::Number(_) => Self {
+            TokenKind::NumberLiteral(_) => Self {
                 prefix: Some(|c| c.number()),
                 ..Default::default()
             },
@@ -173,7 +173,7 @@ impl<'collection, 'interner> Compiler<'collection, 'interner> {
         let previous = self.previous();
 
         match previous.kind {
-            TokenKind::Number(n) => self.emit_constant(Value::Number(n), previous.location),
+            TokenKind::NumberLiteral(n) => self.emit_constant(Value::Number(n), previous.location),
             _ => {
                 let next_lexeme = self.interner.resolve(&previous.lexeme);
                 let diag = Diagnostic::error()
