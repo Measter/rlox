@@ -16,7 +16,7 @@ use rlox::{
 
 use crate::{
     chunk::{Chunk, OpCode},
-    object::{ObjKind, ObjString},
+    object::ObjKind,
     value::Value,
 };
 
