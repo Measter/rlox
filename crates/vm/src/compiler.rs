@@ -90,11 +90,7 @@ impl ParseRule {
                 prefix: Some(|c| c.grouping()),
                 ..Default::default()
             },
-            TokenKind::Minus => Self {
-                prefix: Some(|c| c.unary()),
-                infix: Some(|c| c.binary()),
-                precedence: Precedence::Term,
-            },
+
             TokenKind::NilLiteral | TokenKind::BooleanLiteral(_) => Self {
                 prefix: Some(|c| c.literal()),
                 ..Default::default()
@@ -103,10 +99,16 @@ impl ParseRule {
                 prefix: Some(|c| c.number()),
                 ..Default::default()
             },
+
             TokenKind::Percent | TokenKind::Slash | TokenKind::Star => Self {
                 prefix: None,
                 infix: Some(|c| c.binary()),
                 precedence: Precedence::Factor,
+            },
+            TokenKind::Minus => Self {
+                prefix: Some(|c| c.unary()),
+                infix: Some(|c| c.binary()),
+                precedence: Precedence::Term,
             },
             TokenKind::Plus => Self {
                 prefix: None,
