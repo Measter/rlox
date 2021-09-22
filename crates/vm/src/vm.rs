@@ -1,5 +1,10 @@
 use core::panic;
-use std::{convert::TryInto, fmt::Write, io::StdoutLock};
+use std::{
+    convert::TryInto,
+    fmt::Write,
+    io::{StdoutLock, Write as _},
+    rc::Rc,
+};
 
 use codespan_reporting::diagnostic::{Diagnostic, Label};
 use color_eyre::Result;
@@ -11,6 +16,7 @@ use rlox::{
 
 use crate::{
     chunk::{Chunk, OpCode},
+    object::{ObjKind, ObjString},
     value::Value,
 };
 
@@ -58,6 +64,7 @@ impl<'stdout> Vm<'stdout> {
         func: fn(f64, f64) -> Value,
         op: OpCode,
         location: SourceLocation,
+        interner: &Rodeo,
     ) -> Result<(), Diagnostic<FileId>> {
         let (right, left) = self
             .value_stack
@@ -68,6 +75,18 @@ impl<'stdout> Vm<'stdout> {
         match (right.value, &left.value) {
             (Value::Number(b), Value::Number(a)) => {
                 left.value = func(*a, b);
+                left.source = left.source.merge(right.source);
+                Ok(())
+            }
+
+            // This bit feels hacky...
+            (Value::Obj(b), Value::Obj(a))
+                if a.kind() == ObjKind::String
+                    && b.kind() == ObjKind::String
+                    && op == OpCode::Add =>
+            {
+                let result = a.concatinate_strings(&*b, interner);
+                left.value = Value::Obj(Rc::new(result));
                 left.source = left.source.merge(right.source);
                 Ok(())
             }
@@ -138,26 +157,51 @@ impl<'stdout> Vm<'stdout> {
             let op_location = chunk.locations[idx];
 
             if self.trace {
-                eprintln!("  {:?}", self.value_stack);
-                chunk.disassemble_instruction(emitter, idx);
+                let mut stderr = std::io::stderr();
+                stderr.write_all(b"  [").unwrap();
+                let mut vals = self.value_stack.iter();
+                if let Some(val) = vals.next() {
+                    val.value.display(&mut stderr, interner, true);
+                }
+                for val in vals {
+                    stderr.write_all(b", ").unwrap();
+                    val.value.display(&mut stderr, interner, true);
+                }
+                stderr.write_all(b"]\n").unwrap();
+                chunk.disassemble_instruction(&mut stderr, emitter, idx, interner);
             }
 
             match current_op {
-                OpCode::Add => {
-                    self.binary_op(|a, b| Value::Number(a + b), current_op, op_location)?
-                }
-                OpCode::Divide => {
-                    self.binary_op(|a, b| Value::Number(a / b), current_op, op_location)?
-                }
-                OpCode::Subtract => {
-                    self.binary_op(|a, b| Value::Number(a - b), current_op, op_location)?
-                }
-                OpCode::Multiply => {
-                    self.binary_op(|a, b| Value::Number(a * b), current_op, op_location)?
-                }
-                OpCode::Modulo => {
-                    self.binary_op(|a, b| Value::Number(a % b), current_op, op_location)?
-                }
+                OpCode::Add => self.binary_op(
+                    |a, b| Value::Number(a + b),
+                    current_op,
+                    op_location,
+                    interner,
+                )?,
+                OpCode::Divide => self.binary_op(
+                    |a, b| Value::Number(a / b),
+                    current_op,
+                    op_location,
+                    interner,
+                )?,
+                OpCode::Subtract => self.binary_op(
+                    |a, b| Value::Number(a - b),
+                    current_op,
+                    op_location,
+                    interner,
+                )?,
+                OpCode::Multiply => self.binary_op(
+                    |a, b| Value::Number(a * b),
+                    current_op,
+                    op_location,
+                    interner,
+                )?,
+                OpCode::Modulo => self.binary_op(
+                    |a, b| Value::Number(a % b),
+                    current_op,
+                    op_location,
+                    interner,
+                )?,
                 OpCode::Negate => self.unary_op(current_op, op_location)?,
                 OpCode::Not => self.unary_op(current_op, op_location)?,
 
@@ -187,22 +231,28 @@ impl<'stdout> Vm<'stdout> {
                         .pop()
                         .zip(self.value_stack.last_mut())
                         .expect("ICE Expected value on stack");
-                    left.value = Value::Boolean(left.value == right.value);
+                    left.value = Value::Boolean(left.value.eq(&right.value, interner));
                     left.source = left.source.merge(right.source);
                 }
-                OpCode::Greater => {
-                    self.binary_op(|a, b| Value::Boolean(a > b), current_op, op_location)?
-                }
-                OpCode::Less => {
-                    self.binary_op(|a, b| Value::Boolean(a < b), current_op, op_location)?
-                }
+                OpCode::Greater => self.binary_op(
+                    |a, b| Value::Boolean(a > b),
+                    current_op,
+                    op_location,
+                    interner,
+                )?,
+                OpCode::Less => self.binary_op(
+                    |a, b| Value::Boolean(a < b),
+                    current_op,
+                    op_location,
+                    interner,
+                )?,
 
                 OpCode::Return => {
                     let value = self
                         .value_stack
                         .pop()
                         .expect("ICE: Expected value on stack");
-                    value.value.display(&mut self.stdout);
+                    value.value.display(&mut self.stdout, interner, false);
                     return Ok(());
                 }
             }

@@ -1,4 +1,4 @@
-use std::slice::Iter;
+use std::{rc::Rc, slice::Iter};
 
 use codespan_reporting::diagnostic::{Diagnostic, Label};
 use lasso::Rodeo;
@@ -10,6 +10,7 @@ use rlox::{
 
 use crate::{
     chunk::{Chunk, OpCode},
+    object::ObjString,
     value::Value,
 };
 
@@ -97,6 +98,10 @@ impl ParseRule {
             },
             TokenKind::NumberLiteral(_) => Self {
                 prefix: Some(|c| c.number()),
+                ..Default::default()
+            },
+            TokenKind::StringLiteral(_) => Self {
+                prefix: Some(|c| c.string()),
                 ..Default::default()
             },
 
@@ -244,6 +249,19 @@ impl<'collection, 'interner> Compiler<'collection, 'interner> {
                 Err(diag)
             }
         }
+    }
+
+    fn string(&mut self) -> ParseResult<()> {
+        let token = self.previous();
+        let key = if let TokenKind::StringLiteral(key) = token.kind {
+            key
+        } else {
+            panic!("ICE: Expected StringLiteral, found {:?}", token.kind);
+        };
+
+        let obj = Value::Obj(Rc::new(ObjString::Literal(key)));
+
+        self.emit_constant(obj, token.location)
     }
 
     fn unary(&mut self) -> ParseResult<()> {

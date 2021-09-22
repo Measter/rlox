@@ -1,7 +1,10 @@
+use std::io::Write;
+
 use codespan_reporting::{
     diagnostic::{Diagnostic, Label},
     files::Files,
 };
+use lasso::Rodeo;
 use num_enum::{IntoPrimitive, TryFromPrimitive};
 use rlox::{
     source_file::{FileId, SourceLocation},
@@ -105,20 +108,31 @@ impl Chunk {
         }
     }
 
-    pub fn disassemble(&self, emitter: &DiagnosticEmitter<'_>) {
+    pub fn disassemble(
+        &self,
+        stream: &mut impl Write,
+        emitter: &DiagnosticEmitter<'_>,
+        interner: &Rodeo,
+    ) {
         let mut offset = 0;
         while offset < self.code.len() {
-            offset += self.disassemble_instruction(emitter, offset);
+            offset += self.disassemble_instruction(stream, emitter, offset, interner);
         }
     }
 
-    pub fn disassemble_instruction(&self, emitter: &DiagnosticEmitter<'_>, offset: usize) -> usize {
-        eprint!("0x{:04X} ", offset);
+    pub fn disassemble_instruction(
+        &self,
+        stream: &mut impl Write,
+        emitter: &DiagnosticEmitter<'_>,
+        offset: usize,
+        interner: &Rodeo,
+    ) -> usize {
+        write!(stream, "0x{:04X} ", offset).unwrap();
         let cur_loc = self.locations[offset];
         let prev_loc = (offset > 0).then(|| self.locations[offset - 1]);
 
         if Some(cur_loc) == prev_loc {
-            eprint!("{:24}| ", "");
+            write!(stream, "{:24}| ", "").unwrap();
         } else {
             let source_location = emitter
                 .sources()
@@ -133,7 +147,7 @@ impl Chunk {
                 source_name, source_location.line_number, source_location.column_number
             );
 
-            eprint!("{:<25} ", formatted);
+            write!(stream, "{:<25} ", formatted).unwrap();
         }
         let op = self.code[offset];
         match OpCode::try_from_primitive(op) {
@@ -146,20 +160,17 @@ impl Chunk {
                     .constants
                     .get(constant_id as usize)
                     .expect("ICE: Invalid constant ID");
-                eprintln!(
-                    "{:<16?} {} '{:?}'",
-                    OpCode::Constant,
-                    constant_id,
-                    constant_value
-                );
+                write!(stream, "{:<16?} {} '", OpCode::Constant, constant_id,).unwrap();
+                constant_value.display(stream, interner, false);
+                stream.write_all(b"'\n").unwrap();
                 OpCode::Constant.len()
             }
             Ok(other) => {
-                eprintln!("{:?}", other);
+                writeln!(stream, "{:?}", other).unwrap();
                 other.len()
             }
             Err(_) => {
-                eprintln!("0x{:02X}", op);
+                writeln!(stream, "0x{:02X}", op).unwrap();
                 1
             }
         }

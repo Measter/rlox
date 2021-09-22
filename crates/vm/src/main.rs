@@ -1,5 +1,6 @@
 mod chunk;
 mod compiler;
+mod object;
 mod value;
 mod vm;
 
@@ -101,7 +102,8 @@ fn run(
 
     if dump_chunk {
         eprintln!("=== CHUNK ===");
-        chunk.disassemble(emitter);
+        let mut stderr = std::io::stderr();
+        chunk.disassemble(&mut stderr, emitter, interner);
     }
 
     if trace {
