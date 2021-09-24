@@ -1,4 +1,4 @@
-use std::{io::Write, rc::Rc};
+use std::{any::Any, io::Write, rc::Rc};
 
 use lasso::{Rodeo, Spur};
 
@@ -7,7 +7,7 @@ pub enum ObjKind {
     String,
 }
 
-pub trait Obj: std::fmt::Debug {
+pub trait Obj: std::fmt::Debug + Any {
     fn kind(&self) -> ObjKind;
     fn display(&self, w: &mut dyn Write, interner: &Rodeo, is_dump: bool);
     fn kind_str(&self) -> &'static str;
@@ -19,6 +19,8 @@ pub trait Obj: std::fmt::Debug {
             rhs.kind()
         );
     }
+
+    fn as_any(&self) -> &dyn Any;
 }
 
 #[derive(Debug, Clone)]
@@ -49,12 +51,7 @@ impl Obj for ObjString {
     }
 
     fn eq(&self, rhs: &dyn Obj, interner: &Rodeo) -> bool {
-        if self.kind() == rhs.kind() {
-            // I'm not altogether sure why I can't use Any here when it's a requirement
-            // on Obj.
-            // SAFETY: Need to ensure that kind() returns the correct type.
-            let rhs = unsafe { &*(rhs as *const dyn Obj as *const ObjString) };
-
+        if let Some(rhs) = rhs.as_any().downcast_ref::<ObjString>() {
             match (self, rhs) {
                 (ObjString::Literal(a), ObjString::Literal(b)) => a == b,
                 (ObjString::Runtime(a), ObjString::Runtime(b)) => a == b,
@@ -73,10 +70,10 @@ impl Obj for ObjString {
     }
 
     fn concatinate_strings(&self, rhs: &dyn Obj, interner: &Rodeo) -> ObjString {
-        assert_eq!(rhs.kind(), ObjKind::String);
-
-        // SAFETY: Need to ensure that kind() returns the correct type.
-        let rhs = unsafe { &*(rhs as *const dyn Obj as *const ObjString) };
+        let rhs = rhs
+            .as_any()
+            .downcast_ref::<ObjString>()
+            .expect("ICE: Attempted to concatinate_string a non-string");
 
         let lhs_str = match self {
             ObjString::Literal(key) => interner.resolve(key),
@@ -100,5 +97,9 @@ impl Obj for ObjString {
         lhs.push_str(rhs_str);
 
         ObjString::Runtime(lhs.into_boxed_str().into())
+    }
+
+    fn as_any(&self) -> &dyn Any {
+        self
     }
 }
