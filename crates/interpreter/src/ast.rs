@@ -1,9 +1,9 @@
-use std::{ops::Range, rc::Rc};
+use std::ops::Range;
 
 use rlox::token::Token;
 
 use crate::{
-    program::{ExpressionId, Program, StatementId},
+    program::{ExpressionId, FunctionId, Program, StatementId},
     FileId,
 };
 
@@ -217,12 +217,12 @@ pub enum Statement {
     },
     Class {
         name: Token,
-        methods: Vec<Rc<Function>>,
+        methods: Vec<FunctionId>,
         source_range: Range<usize>,
         superclass: Option<ExpressionId>,
     },
     Expression(ExpressionId),
-    Function(Rc<Function>),
+    Function(FunctionId),
     If {
         condition: ExpressionId,
         then_branch: StatementId,

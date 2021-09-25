@@ -1,4 +1,4 @@
-use std::{iter::Peekable, rc::Rc, slice::Iter};
+use std::{iter::Peekable, slice::Iter};
 
 use codespan_reporting::diagnostic::{Diagnostic, Label};
 use lasso::Rodeo;
@@ -160,11 +160,11 @@ impl<'collection, 'interner, 'program> Parser<'collection, 'interner, 'program> 
 
             // There's no actual function token here, so just stick in the last one (should be a brace).
             let func = match self.function_declaration(self.previous())? {
-                Statement::Function(f) => Rc::try_unwrap(f).unwrap(), // A bit inefficient, but whatever...
+                Statement::Function(f) => f,
                 _ => unreachable!(),
             };
 
-            methods.push(Rc::new(func));
+            methods.push(func);
         }
 
         let right_brace = self.expect(TokenKind::RightBrace, "`}`", || {
@@ -226,11 +226,14 @@ impl<'collection, 'interner, 'program> Parser<'collection, 'interner, 'program> 
             _ => unreachable!(),
         };
 
-        Ok(Statement::Function(Rc::new(Function {
-            name,
-            parameters,
-            body,
-        })))
+        Ok(Statement::Function(self.program.add_function(
+            self.file_id,
+            Function {
+                name,
+                parameters,
+                body,
+            },
+        )))
     }
 
     fn var_declaration(&mut self, _: Token) -> ParseResult<StatementId> {

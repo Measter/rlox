@@ -10,10 +10,10 @@ use rlox::{
 };
 
 use crate::{
-    ast::{ExpressionKind, Function, Statement},
+    ast::{ExpressionKind, Statement},
     environment::{Environment, Object, StringObject},
     lox_callable::{LoxCallable, LoxClassConstructor, LoxClassDefinition, LoxClassInstance},
-    program::{ExpressionId, Program, StatementId},
+    program::{ExpressionId, FunctionId, Program, StatementId},
 };
 
 pub type EvaluateResult = Result<Object, Diagnostic<FileId>>;
@@ -142,7 +142,7 @@ impl Interpreter {
             Statement::Expression(expr) => {
                 self.evaluate_expression(*expr, emitter, interner, program)?;
             }
-            Statement::Function(func) => self.evaluate_statement_function(func.clone())?,
+            Statement::Function(func) => self.evaluate_statement_function(*func, program)?,
             Statement::If {
                 condition,
                 then_branch,
@@ -218,7 +218,7 @@ impl Interpreter {
     pub fn evaluate_statement_class(
         &mut self,
         name: Token,
-        methods: &[Rc<Function>],
+        methods: &[FunctionId],
         superclass: Option<ExpressionId>,
         source_range: Range<usize>,
         emitter: &mut DiagnosticEmitter<'_>,
@@ -272,13 +272,17 @@ impl Interpreter {
         let mut def_methods = HashMap::default();
 
         for method in methods {
+            let func_def = &program[*method];
+
             let function = LoxCallable {
-                declaration: method.clone(),
+                declaration: *method,
                 closure: self.environment.clone(),
-                is_initializer: method.name.lexeme == interner.get("init").unwrap(),
+                is_initializer: func_def.name.lexeme == interner.get("init").unwrap(),
+                arity: func_def.parameters.len(),
+                name: func_def.name.lexeme,
             };
 
-            def_methods.insert(method.name.lexeme, Rc::new(function));
+            def_methods.insert(func_def.name.lexeme, Rc::new(function));
         }
 
         if superclass_def.is_some() {
@@ -306,13 +310,17 @@ impl Interpreter {
 
     fn evaluate_statement_function(
         &mut self,
-        func: Rc<Function>,
+        func: FunctionId,
+        program: &Program,
     ) -> Result<(), Diagnostic<FileId>> {
-        let name = func.name;
+        let func_def = &program[func];
+        let name = func_def.name;
         let function = Rc::new(LoxCallable {
             declaration: func,
             closure: self.environment.clone(),
             is_initializer: false,
+            arity: func_def.parameters.len(),
+            name: name.lexeme,
         });
         let obj = Object::Callable(function);
         let mut env = self.environment.borrow_mut();
@@ -395,7 +403,7 @@ impl Interpreter {
                 let obj = self.evaluate_expression(*object, emitter, interner, program)?;
 
                 if let Object::LoxClassInstance(instance) = obj {
-                    LoxClassInstance::get(&instance, *name, interner)
+                    LoxClassInstance::get(&instance, *name, interner, program)
                 } else {
                     let diag = Diagnostic::error()
                         .with_message("only class instances have properties")
@@ -448,7 +456,7 @@ impl Interpreter {
             }
 
             ExpressionKind::Super { keyword, method } => {
-                self.evaluate_expr_super(*keyword, *method, expr, interner)
+                self.evaluate_expr_super(*keyword, *method, expr, interner, program)
             }
 
             ExpressionKind::Unary {
@@ -466,6 +474,7 @@ impl Interpreter {
         method: Token,
         id: ExpressionId,
         interner: &Rodeo,
+        program: &Program,
     ) -> EvaluateResult {
         let distance = *self.locals.get(&id).expect("ICE: failed to find `super`");
 
@@ -517,9 +526,11 @@ impl Interpreter {
             return Err(diag);
         };
 
-        Ok(Object::Callable(Rc::new(
-            method.bind(class_instance, interner),
-        )))
+        Ok(Object::Callable(Rc::new(method.bind(
+            class_instance,
+            interner,
+            program,
+        ))))
     }
 
     fn evaluate_expr_assign(

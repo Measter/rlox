@@ -6,10 +6,9 @@ use lasso::{Rodeo, Spur};
 use rlox::token::Token;
 
 use crate::{
-    ast::Function,
     environment::{Environment, Object},
     interpreter::{EvaluateResult, Interpreter},
-    program::Program,
+    program::{FunctionId, Program},
     DiagnosticEmitter,
 };
 
@@ -72,25 +71,35 @@ impl Callable for NativeCallable {
 }
 
 pub struct LoxCallable {
-    pub declaration: Rc<Function>,
+    pub declaration: FunctionId,
     pub closure: Rc<RefCell<Environment>>,
     pub is_initializer: bool,
+    pub arity: usize,
+    pub name: Spur,
 }
 
 impl LoxCallable {
-    pub fn bind(&self, instance: Rc<RefCell<LoxClassInstance>>, interner: &Rodeo) -> LoxCallable {
+    pub fn bind(
+        &self,
+        instance: Rc<RefCell<LoxClassInstance>>,
+        interner: &Rodeo,
+        program: &Program,
+    ) -> LoxCallable {
         let mut closure = Environment::with_parent(self.closure.clone());
+        let func_def = &program[self.declaration];
         let this_token = Token::make_ident(
             interner.get("this").unwrap(),
-            self.declaration.name.location.file_id,
-            self.declaration.name.source_range(),
+            func_def.name.location.file_id,
+            func_def.name.source_range(),
         );
         closure.define(this_token, None, Object::LoxClassInstance(instance));
 
         Self {
-            declaration: self.declaration.clone(),
+            declaration: self.declaration,
             closure: Rc::new(RefCell::new(closure)),
             is_initializer: self.is_initializer,
+            name: func_def.name.lexeme,
+            arity: func_def.parameters.len(),
         }
     }
 }
@@ -98,7 +107,7 @@ impl LoxCallable {
 impl std::fmt::Debug for LoxCallable {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("LoxCallable")
-            .field("declaration", &self.declaration.name.lexeme)
+            .field("declaration", &self.name)
             .finish()
     }
 }
@@ -115,14 +124,15 @@ impl Callable for LoxCallable {
         let parent = self.closure.clone();
         let mut env = Environment::with_parent(parent);
 
-        for (param, arg) in self.declaration.parameters.iter().zip(args) {
+        let func_def = &program[self.declaration];
+        for (param, arg) in func_def.parameters.iter().zip(args) {
             env.define(*param, None, arg);
         }
 
         let old_env = std::mem::replace(&mut interpreter.environment, Rc::new(RefCell::new(env)));
 
         let ret_val = match interpreter.evaluate_statement_block(
-            &self.declaration.body,
+            &func_def.body,
             emitter,
             interner,
             program,
@@ -140,8 +150,8 @@ impl Callable for LoxCallable {
         if self.is_initializer {
             let this_token = Token::make_ident(
                 interner.get("this").unwrap(),
-                self.declaration.name.location.file_id,
-                self.declaration.name.source_range(),
+                func_def.name.location.file_id,
+                func_def.name.source_range(),
             );
             let closure = self.closure.borrow();
             let (ret_val, _) = closure.get_at(this_token, 0, interner)?;
@@ -153,11 +163,11 @@ impl Callable for LoxCallable {
     }
 
     fn arity(&self, _: &Rodeo) -> usize {
-        self.declaration.parameters.len()
+        self.arity
     }
 
     fn name<'a>(&self, interner: &'a Rodeo) -> &'a str {
-        interner.resolve(&self.declaration.name.lexeme)
+        interner.resolve(&self.name)
     }
 
     fn kind(&self) -> &'static str {
@@ -215,7 +225,7 @@ impl Callable for LoxClassConstructor {
             self.definition.name.source_range(),
         );
         if let Some(init) = self.definition.find_method(init_token) {
-            init.bind(instance.clone(), interner).call(
+            init.bind(instance.clone(), interner, program).call(
                 interpreter,
                 emitter,
                 interner,
@@ -259,14 +269,19 @@ pub struct LoxClassInstance {
 }
 
 impl LoxClassInstance {
-    pub fn get(this: &Rc<RefCell<Self>>, name: Token, interner: &Rodeo) -> EvaluateResult {
+    pub fn get(
+        this: &Rc<RefCell<Self>>,
+        name: Token,
+        interner: &Rodeo,
+        program: &Program,
+    ) -> EvaluateResult {
         let this_borrow = this.borrow();
         if let Some(obj) = this_borrow.fields.get(&name.lexeme) {
             return Ok(obj.clone());
         }
 
         if let Some(method) = this_borrow.definition.find_method(name) {
-            let func = method.bind(this.clone(), interner);
+            let func = method.bind(this.clone(), interner, program);
             return Ok(Object::Callable(Rc::new(func)));
         }
 

@@ -1,4 +1,4 @@
-use std::{collections::HashMap, rc::Rc};
+use std::collections::HashMap;
 
 use codespan_reporting::diagnostic::{Diagnostic, Label};
 use lasso::{Rodeo, Spur};
@@ -8,9 +8,9 @@ use rlox::{
 };
 
 use crate::{
-    ast::{ExpressionKind, Function, Statement},
+    ast::{ExpressionKind, Statement},
     interpreter::Interpreter,
-    program::{ExpressionId, Program, StatementId},
+    program::{ExpressionId, FunctionId, Program, StatementId},
 };
 
 pub type ResolveResult = Result<(), Diagnostic<FileId>>;
@@ -155,10 +155,11 @@ impl<'a> Resolver<'a> {
                 self.resolve_expression(*expr)?
             }
             Statement::Function(func) => {
-                self.declare(func.name)?;
-                self.define(func.name);
+                let func_def = &self.program[*func];
+                self.declare(func_def.name)?;
+                self.define(func_def.name);
 
-                self.resolve_function(func, FunctionType::Function)?;
+                self.resolve_function(*func, FunctionType::Function)?;
             }
             Statement::If {
                 condition,
@@ -219,7 +220,7 @@ impl<'a> Resolver<'a> {
         &mut self,
         name: Token,
         superclass: Option<ExpressionId>,
-        methods: &[Rc<Function>],
+        methods: &[FunctionId],
     ) -> ResolveResult {
         let enclosing_class = std::mem::replace(&mut self.current_class, ClassType::Class);
         match superclass.map(|id| &self.program[id].kind) {
@@ -267,12 +268,13 @@ impl<'a> Resolver<'a> {
         );
 
         for method in methods {
-            let declaration = if method.name.lexeme == self.interner.get("init").unwrap() {
+            let method_name = self.program[*method].name.lexeme;
+            let declaration = if method_name == self.interner.get("init").unwrap() {
                 FunctionType::Initializer
             } else {
                 FunctionType::Method
             };
-            self.resolve_function(method, declaration)?;
+            self.resolve_function(*method, declaration)?;
         }
         self.end_scope();
 
@@ -284,10 +286,11 @@ impl<'a> Resolver<'a> {
         Ok(())
     }
 
-    fn resolve_function(&mut self, func: &Function, func_type: FunctionType) -> ResolveResult {
+    fn resolve_function(&mut self, func: FunctionId, func_type: FunctionType) -> ResolveResult {
         let enclosing_function = std::mem::replace(&mut self.current_function, func_type);
         self.begin_scope();
 
+        let func = &self.program[func];
         for &param in &func.parameters {
             self.declare(param)?;
             self.define(param);

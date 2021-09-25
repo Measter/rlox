@@ -22,6 +22,12 @@ pub struct StatementId {
     stmt_id: usize,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct FunctionId {
+    file_id: FileId,
+    func_id: usize,
+}
+
 #[derive(Debug, Default)]
 pub struct SourceStore {
     functions: Vec<Function>,
@@ -47,8 +53,7 @@ impl Program {
     pub fn add_expression(&mut self, file_id: FileId, expr_kind: ExpressionKind) -> ExpressionId {
         self.ensure_file(file_id);
 
-        // SAFETY: ensure_file will create a SourceStore at this file index.
-        let source_store = unsafe { self.programs.get_unchecked_mut(file_id.id()) };
+        let source_store = &mut self.programs[file_id.id()];
         let expr_id = ExpressionId {
             file_id,
             expr_id: source_store.expressions.len(),
@@ -64,8 +69,7 @@ impl Program {
     pub fn add_statement(&mut self, file_id: FileId, statement: Statement) -> StatementId {
         self.ensure_file(file_id);
 
-        // SAFETY: ensure_file will create a SourceStore at this file index.
-        let source_store = unsafe { self.programs.get_unchecked_mut(file_id.id()) };
+        let source_store = &mut self.programs[file_id.id()];
         let stmt_id = StatementId {
             file_id,
             stmt_id: source_store.statements.len(),
@@ -73,6 +77,19 @@ impl Program {
 
         source_store.statements.push(statement);
         stmt_id
+    }
+
+    pub fn add_function(&mut self, file_id: FileId, function: Function) -> FunctionId {
+        self.ensure_file(file_id);
+
+        let source_store = &mut self.programs[file_id.id()];
+        let func_id = FunctionId {
+            file_id,
+            func_id: source_store.functions.len(),
+        };
+        source_store.functions.push(function);
+
+        func_id
     }
 }
 
@@ -102,6 +119,21 @@ impl Index<StatementId> for Program {
                 .get_unchecked(index.file_id.id())
                 .statements
                 .get_unchecked(index.stmt_id)
+        }
+    }
+}
+
+impl Index<FunctionId> for Program {
+    type Output = Function;
+
+    fn index(&self, index: FunctionId) -> &Self::Output {
+        // SAFETY: The only way to get a FunctionId is through the add_function function
+        // which only creates valid IDs.
+        unsafe {
+            self.programs
+                .get_unchecked(index.file_id.id())
+                .functions
+                .get_unchecked(index.func_id)
         }
     }
 }
