@@ -32,12 +32,12 @@ fn main() -> Result<()> {
     let stderr = StandardStream::stderr(ColorChoice::Always);
     let mut emitter = DiagnosticEmitter::new(&stderr);
 
-    let mut program = Program::new();
     let mut interner = Rodeo::default();
     // These two are used when instantiating a class.
-    interner.get_or_intern_static("this");
-    interner.get_or_intern_static("init");
-    interner.get_or_intern_static("super");
+    let this_lexeme = interner.get_or_intern_static("this");
+    let init_lexeme = interner.get_or_intern_static("init");
+    let super_lexeme = interner.get_or_intern_static("super");
+    let mut program = Program::new(this_lexeme, init_lexeme, super_lexeme);
     let mut interpreter = Interpreter::new(&mut interner);
 
     for file in args {

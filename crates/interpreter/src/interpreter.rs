@@ -263,7 +263,7 @@ impl Interpreter {
             let mut env = self.environment.borrow_mut();
             let super_token = Token {
                 kind: TokenKind::Super,
-                lexeme: interner.get("super").unwrap(),
+                lexeme: program.super_lexeme(),
                 location: name.location,
             };
             env.define(super_token, None, Object::LoxClassSuper(def.clone()))
@@ -277,7 +277,7 @@ impl Interpreter {
             let function = LoxCallable {
                 declaration: *method,
                 closure: self.environment.clone(),
-                is_initializer: func_def.name.lexeme == interner.get("init").unwrap(),
+                is_initializer: func_def.name.lexeme == program.init_lexeme(),
                 arity: func_def.parameters.len(),
                 name: func_def.name.lexeme,
             };
@@ -496,7 +496,7 @@ impl Interpreter {
 
         let this_token = Token {
             kind: TokenKind::This,
-            lexeme: interner.get("this").unwrap(),
+            lexeme: program.this_lexeme(),
             ..keyword
         };
         let (class_instance, _) = env.get_at(this_token, distance - 1, interner)?;
@@ -526,11 +526,9 @@ impl Interpreter {
             return Err(diag);
         };
 
-        Ok(Object::Callable(Rc::new(method.bind(
-            class_instance,
-            interner,
-            program,
-        ))))
+        Ok(Object::Callable(Rc::new(
+            method.bind(class_instance, program),
+        )))
     }
 
     fn evaluate_expr_assign(
@@ -592,11 +590,11 @@ impl Interpreter {
             }
         };
 
-        if evaluated_args.len() != callee_function.arity(interner) {
+        if evaluated_args.len() != callee_function.arity(interner, program) {
             let diag = Diagnostic::error()
                 .with_message(format!(
                     "expected {} arguments but got {}",
-                    callee_function.arity(interner),
+                    callee_function.arity(interner, program),
                     evaluated_args.len()
                 ))
                 .with_labels(vec![Label::primary(

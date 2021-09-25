@@ -22,7 +22,7 @@ pub trait Callable: std::fmt::Debug {
         args: Vec<Object>,
     ) -> EvaluateResult;
 
-    fn arity(&self, interner: &Rodeo) -> usize;
+    fn arity(&self, interner: &Rodeo, program: &Program) -> usize;
 
     fn name<'a>(&self, interner: &'a Rodeo) -> &'a str;
 
@@ -53,7 +53,7 @@ impl Callable for NativeCallable {
         (self.func)(args)
     }
 
-    fn arity(&self, _: &Rodeo) -> usize {
+    fn arity(&self, _: &Rodeo, _: &Program) -> usize {
         self.arity
     }
 
@@ -79,16 +79,11 @@ pub struct LoxCallable {
 }
 
 impl LoxCallable {
-    pub fn bind(
-        &self,
-        instance: Rc<RefCell<LoxClassInstance>>,
-        interner: &Rodeo,
-        program: &Program,
-    ) -> LoxCallable {
+    pub fn bind(&self, instance: Rc<RefCell<LoxClassInstance>>, program: &Program) -> LoxCallable {
         let mut closure = Environment::with_parent(self.closure.clone());
         let func_def = &program[self.declaration];
         let this_token = Token::make_ident(
-            interner.get("this").unwrap(),
+            program.this_lexeme(),
             func_def.name.location.file_id,
             func_def.name.source_range(),
         );
@@ -149,7 +144,7 @@ impl Callable for LoxCallable {
         interpreter.environment = old_env;
         if self.is_initializer {
             let this_token = Token::make_ident(
-                interner.get("this").unwrap(),
+                program.this_lexeme(),
                 func_def.name.location.file_id,
                 func_def.name.source_range(),
             );
@@ -162,7 +157,7 @@ impl Callable for LoxCallable {
         }
     }
 
-    fn arity(&self, _: &Rodeo) -> usize {
+    fn arity(&self, _: &Rodeo, _: &Program) -> usize {
         self.arity
     }
 
@@ -220,12 +215,12 @@ impl Callable for LoxClassConstructor {
         let instance = Rc::new(RefCell::new(instance));
 
         let init_token = Token::make_ident(
-            interner.get("init").unwrap(),
+            program.init_lexeme(),
             self.definition.name.location.file_id,
             self.definition.name.source_range(),
         );
         if let Some(init) = self.definition.find_method(init_token) {
-            init.bind(instance.clone(), interner, program).call(
+            init.bind(instance.clone(), program).call(
                 interpreter,
                 emitter,
                 interner,
@@ -237,15 +232,15 @@ impl Callable for LoxClassConstructor {
         Ok(Object::LoxClassInstance(instance))
     }
 
-    fn arity(&self, interner: &Rodeo) -> usize {
+    fn arity(&self, interner: &Rodeo, program: &Program) -> usize {
         let init_token = Token::make_ident(
-            interner.get("init").unwrap(),
+            program.init_lexeme(),
             self.definition.name.location.file_id,
             self.definition.name.source_range(),
         );
         self.definition
             .find_method(init_token)
-            .map(|init| init.arity(interner))
+            .map(|init| init.arity(interner, program))
             .unwrap_or(0)
     }
 
@@ -281,7 +276,7 @@ impl LoxClassInstance {
         }
 
         if let Some(method) = this_borrow.definition.find_method(name) {
-            let func = method.bind(this.clone(), interner, program);
+            let func = method.bind(this.clone(), program);
             return Ok(Object::Callable(Rc::new(func)));
         }
 

@@ -1,5 +1,6 @@
 use std::ops::Index;
 
+use lasso::Spur;
 use rlox::source_file::FileId;
 
 use crate::ast::{Expression, ExpressionKind, Function, Statement};
@@ -35,14 +36,34 @@ pub struct SourceStore {
     statements: Vec<Statement>,
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub struct Program {
     programs: Vec<SourceStore>,
+    this_lexeme: Spur,
+    init_lexeme: Spur,
+    super_lexeme: Spur,
 }
 
 impl Program {
-    pub fn new() -> Self {
-        Self::default()
+    pub fn new(this_lexeme: Spur, init_lexeme: Spur, super_lexeme: Spur) -> Self {
+        Self {
+            programs: Vec::new(),
+            this_lexeme,
+            init_lexeme,
+            super_lexeme,
+        }
+    }
+
+    pub fn this_lexeme(&self) -> Spur {
+        self.this_lexeme
+    }
+
+    pub fn init_lexeme(&self) -> Spur {
+        self.init_lexeme
+    }
+
+    pub fn super_lexeme(&self) -> Spur {
+        self.super_lexeme
     }
 
     fn ensure_file(&mut self, id: FileId) {
