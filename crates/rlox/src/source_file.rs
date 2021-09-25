@@ -9,10 +9,12 @@ use codespan_reporting::files::{Files, SimpleFile};
 pub struct FileId(usize);
 
 impl FileId {
+    #[inline(always)]
     pub fn blank() -> Self {
         Self(0)
     }
 
+    #[inline(always)]
     pub fn id(self) -> usize {
         self.0
     }
@@ -44,10 +46,12 @@ impl SourceLocation {
         }
     }
 
+    #[inline(always)]
     pub fn range(&self) -> Range<usize> {
         self.source_start..(self.source_start + self.len)
     }
 
+    #[inline(always)]
     pub fn merge(self, other: Self) -> Self {
         assert!(self.file_id == other.file_id);
         let self_end = self.source_start + self.len;

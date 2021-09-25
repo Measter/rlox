@@ -155,6 +155,7 @@ pub struct Expression {
 }
 
 impl Expression {
+    #[inline(always)]
     pub fn source_id(&self) -> FileId {
         self.id.file_id()
     }

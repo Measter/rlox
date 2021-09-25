@@ -58,12 +58,14 @@ pub enum TokenKind {
 
 // Saves having a bunch of borrows in the parser. Looks dumb.
 impl PartialEq<TokenKind> for &'_ TokenKind {
+    #[inline(always)]
     fn eq(&self, other: &TokenKind) -> bool {
         **self == *other
     }
 }
 
 impl TokenKind {
+    #[inline(always)]
     pub fn is_literal(self) -> bool {
         use TokenKind::*;
         matches!(
@@ -72,6 +74,7 @@ impl TokenKind {
         )
     }
 
+    #[inline(always)]
     pub fn is_binary(self) -> bool {
         use TokenKind::*;
         matches!(
@@ -91,21 +94,25 @@ impl TokenKind {
         )
     }
 
+    #[inline(always)]
     pub fn is_logical(self) -> bool {
         use TokenKind::*;
         matches!(self, And | Or)
     }
 
+    #[inline(always)]
     pub fn is_unary(self) -> bool {
         use TokenKind::*;
         matches!(self, Bang | Minus)
     }
 
+    #[inline(always)]
     pub fn is_statement_start(self) -> bool {
         use TokenKind::*;
         matches!(self, Class | Fun | Var | For | If | While | Print | Return)
     }
 
+    #[inline(always)]
     pub fn is_keyword(self) -> bool {
         use TokenKind::*;
 
@@ -124,6 +131,7 @@ pub struct Token {
 }
 
 impl Token {
+    #[inline(always)]
     pub fn make_ident(lexeme: Spur, source_id: FileId, range: Range<usize>) -> Self {
         Self {
             kind: TokenKind::Identifier,
@@ -138,6 +146,7 @@ impl Token {
 }
 
 impl Token {
+    #[inline(always)]
     pub fn source_range(self) -> Range<usize> {
         self.location.range()
     }
