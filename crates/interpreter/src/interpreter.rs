@@ -13,7 +13,7 @@ use crate::{
     ast::{ExpressionKind, Function, Statement},
     environment::{Environment, Object, StringObject},
     lox_callable::{LoxCallable, LoxClassConstructor, LoxClassDefinition, LoxClassInstance},
-    program::{ExpressionId, Program},
+    program::{ExpressionId, Program, StatementId},
 };
 
 pub type EvaluateResult = Result<Object, Diagnostic<FileId>>;
@@ -95,14 +95,14 @@ impl Interpreter {
 
     pub fn interpret(
         &mut self,
-        top_level_statements: &[Statement],
+        top_level_statements: &[StatementId],
         emitter: &mut DiagnosticEmitter<'_>,
         interner: &Rodeo,
         program: &Program,
     ) -> Result<(), Diagnostic<FileId>> {
         self.did_print = false;
 
-        for stmnt in top_level_statements {
+        for &stmnt in top_level_statements {
             self.evaluate_statement(stmnt, emitter, interner, program)?;
         }
 
@@ -111,12 +111,12 @@ impl Interpreter {
 
     fn evaluate_statement(
         &mut self,
-        stmnt: &Statement,
+        stmnt: StatementId,
         emitter: &mut DiagnosticEmitter<'_>,
         interner: &Rodeo,
         program: &Program,
     ) -> Result<Option<Object>, Diagnostic<FileId>> {
-        match stmnt {
+        match &program[stmnt] {
             Statement::Block { statements } => {
                 self.nest_scope();
                 let ret_val = self.evaluate_statement_block(statements, emitter, interner, program);
@@ -150,8 +150,8 @@ impl Interpreter {
             } => {
                 let res = self.evaluate_expression(*condition, emitter, interner, program)?;
                 let obj = if res.is_truthy() {
-                    self.evaluate_statement(then_branch, emitter, interner, program)?
-                } else if let Some(else_branch) = else_branch.as_deref() {
+                    self.evaluate_statement(*then_branch, emitter, interner, program)?
+                } else if let Some(else_branch) = *else_branch {
                     self.evaluate_statement(else_branch, emitter, interner, program)?
                 } else {
                     None
@@ -181,7 +181,7 @@ impl Interpreter {
                     .evaluate_expression(*condition, emitter, interner, program)?
                     .is_truthy()
                 {
-                    if let Some(obj) = self.evaluate_statement(body, emitter, interner, program)? {
+                    if let Some(obj) = self.evaluate_statement(*body, emitter, interner, program)? {
                         return Ok(Some(obj));
                     }
                 }
@@ -193,12 +193,12 @@ impl Interpreter {
 
     pub fn evaluate_statement_block(
         &mut self,
-        statements: &[Statement],
+        statements: &[StatementId],
         emitter: &mut DiagnosticEmitter<'_>,
         interner: &Rodeo,
         program: &Program,
     ) -> Result<Option<Object>, Diagnostic<FileId>> {
-        for statement in statements {
+        for &statement in statements {
             match self.evaluate_statement(statement, emitter, interner, program) {
                 Ok(Some(obj)) => {
                     return Ok(Some(obj));

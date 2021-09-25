@@ -10,7 +10,7 @@ use rlox::{
 use crate::{
     ast::{ExpressionKind, Function, Statement},
     interpreter::Interpreter,
-    program::{ExpressionId, Program},
+    program::{ExpressionId, Program, StatementId},
 };
 
 pub type ResolveResult = Result<(), Diagnostic<FileId>>;
@@ -69,8 +69,8 @@ impl<'a> Resolver<'a> {
         }
     }
 
-    pub fn resolve(&mut self, statements: &[Statement]) -> ResolveResult {
-        for statement in statements {
+    pub fn resolve(&mut self, statements: &[StatementId]) -> ResolveResult {
+        for &statement in statements {
             self.resolve_statement(statement)?;
         }
 
@@ -133,8 +133,8 @@ impl<'a> Resolver<'a> {
         Ok(())
     }
 
-    fn resolve_statement(&mut self, statement: &Statement) -> ResolveResult {
-        match statement {
+    fn resolve_statement(&mut self, statement: StatementId) -> ResolveResult {
+        match &self.program[statement] {
             Statement::Block { statements } => {
                 self.begin_scope();
                 self.resolve(statements)?;
@@ -166,9 +166,9 @@ impl<'a> Resolver<'a> {
                 else_branch,
             } => {
                 self.resolve_expression(*condition)?;
-                self.resolve_statement(then_branch)?;
+                self.resolve_statement(*then_branch)?;
                 if let Some(else_branch) = else_branch {
-                    self.resolve_statement(else_branch)?;
+                    self.resolve_statement(*else_branch)?;
                 }
             }
             Statement::Return { value, keyword } => {
@@ -208,7 +208,7 @@ impl<'a> Resolver<'a> {
             }
             Statement::While { condition, body } => {
                 self.resolve_expression(*condition)?;
-                self.resolve_statement(body)?;
+                self.resolve_statement(*body)?;
             }
         }
 

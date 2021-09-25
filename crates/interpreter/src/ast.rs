@@ -3,7 +3,7 @@ use std::{ops::Range, rc::Rc};
 use rlox::token::Token;
 
 use crate::{
-    program::{ExpressionId, Program},
+    program::{ExpressionId, Program, StatementId},
     FileId,
 };
 
@@ -207,13 +207,13 @@ impl Expression {
 pub struct Function {
     pub name: Token,
     pub parameters: Vec<Token>,
-    pub body: Vec<Statement>,
+    pub body: Vec<StatementId>,
 }
 
 #[derive(Debug)]
 pub enum Statement {
     Block {
-        statements: Vec<Statement>,
+        statements: Vec<StatementId>,
     },
     Class {
         name: Token,
@@ -225,8 +225,8 @@ pub enum Statement {
     Function(Rc<Function>),
     If {
         condition: ExpressionId,
-        then_branch: Box<Statement>,
-        else_branch: Option<Box<Statement>>,
+        then_branch: StatementId,
+        else_branch: Option<StatementId>,
     },
     Print(ExpressionId),
     Return {
@@ -239,6 +239,6 @@ pub enum Statement {
     },
     While {
         condition: ExpressionId,
-        body: Box<Statement>,
+        body: StatementId,
     },
 }

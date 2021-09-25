@@ -9,7 +9,7 @@ use rlox::{
 
 use crate::{
     ast::{ExpressionKind, Function, Statement},
-    program::{ExpressionId, Program},
+    program::{ExpressionId, Program, StatementId},
     FileId,
 };
 
@@ -60,7 +60,7 @@ type ParseResult<T> = Result<T, Diagnostic<FileId>>;
 //                | "super" "." IDENTIFIER ;
 
 pub struct ParseSuccess {
-    pub program: Vec<Statement>,
+    pub program: Vec<StatementId>,
     pub diags: Vec<Diagnostic<FileId>>,
 }
 
@@ -122,14 +122,19 @@ impl<'collection, 'interner, 'program> Parser<'collection, 'interner, 'program> 
             .ok_or(diags)
     }
 
-    fn declaration(&mut self) -> ParseResult<Statement> {
+    fn declaration(&mut self) -> ParseResult<StatementId> {
         self.try_parse_statement(TokenKind::Class, Self::class_declaration)
-            .or_else(|| self.try_parse_statement(TokenKind::Fun, Self::function_declaration))
+            .or_else(|| {
+                self.matches(|k| k == TokenKind::Fun).map(|t| {
+                    self.function_declaration(t)
+                        .map(|s| self.program.add_statement(self.file_id, s))
+                })
+            })
             .or_else(|| self.try_parse_statement(TokenKind::Var, Self::var_declaration))
             .unwrap_or_else(|| self.statement())
     }
 
-    fn class_declaration(&mut self, class_token: Token) -> ParseResult<Statement> {
+    fn class_declaration(&mut self, class_token: Token) -> ParseResult<StatementId> {
         let name = self.expect(TokenKind::Identifier, "ident", Vec::new)?;
 
         let superclass = self
@@ -171,12 +176,15 @@ impl<'collection, 'interner, 'program> Parser<'collection, 'interner, 'program> 
 
         let source_range = class_token.location.source_start..right_brace.source_range().end;
 
-        Ok(Statement::Class {
-            name,
-            methods,
-            source_range,
-            superclass,
-        })
+        Ok(self.program.add_statement(
+            self.file_id,
+            Statement::Class {
+                name,
+                methods,
+                source_range,
+                superclass,
+            },
+        ))
     }
 
     fn function_declaration(&mut self, _: Token) -> ParseResult<Statement> {
@@ -225,7 +233,7 @@ impl<'collection, 'interner, 'program> Parser<'collection, 'interner, 'program> 
         })))
     }
 
-    fn var_declaration(&mut self, _: Token) -> ParseResult<Statement> {
+    fn var_declaration(&mut self, _: Token) -> ParseResult<StatementId> {
         let name = self.expect(TokenKind::Identifier, "ident", Vec::new)?;
 
         let initializer = self
@@ -236,28 +244,35 @@ impl<'collection, 'interner, 'program> Parser<'collection, 'interner, 'program> 
 
         self.expect(TokenKind::SemiColon, "`;`", Vec::new)?;
 
-        Ok(Statement::Variable { name, initializer })
+        Ok(self
+            .program
+            .add_statement(self.file_id, Statement::Variable { name, initializer }))
     }
 
-    fn statement(&mut self) -> ParseResult<Statement> {
+    fn statement(&mut self) -> ParseResult<StatementId> {
         self.try_parse_statement(TokenKind::For, Self::for_statement)
             .or_else(|| self.try_parse_statement(TokenKind::If, Self::if_statement))
             .or_else(|| self.try_parse_statement(TokenKind::Print, Self::print_statement))
             .or_else(|| self.try_parse_statement(TokenKind::Return, Self::return_statement))
             .or_else(|| self.try_parse_statement(TokenKind::While, Self::while_statement))
-            .or_else(|| self.try_parse_statement(TokenKind::LeftBrace, Self::block_statement))
+            .or_else(|| {
+                self.matches(|k| k == TokenKind::LeftBrace).map(|t| {
+                    self.block_statement(t)
+                        .map(|s| self.program.add_statement(self.file_id, s))
+                })
+            })
             .unwrap_or_else(|| self.expression_statement())
     }
 
     fn try_parse_statement(
         &mut self,
         kind: TokenKind,
-        then_parse: fn(&mut Self, Token) -> ParseResult<Statement>,
-    ) -> Option<ParseResult<Statement>> {
+        then_parse: fn(&mut Self, Token) -> ParseResult<StatementId>,
+    ) -> Option<ParseResult<StatementId>> {
         self.matches(|k| k == kind).map(|t| then_parse(self, t))
     }
 
-    fn for_statement(&mut self, for_token: Token) -> ParseResult<Statement> {
+    fn for_statement(&mut self, for_token: Token) -> ParseResult<StatementId> {
         // We'll just desugar into a while loop.
 
         let for_token_range = for_token.source_range();
@@ -306,7 +321,10 @@ impl<'collection, 'interner, 'program> Parser<'collection, 'interner, 'program> 
 
         let mut body = vec![self.statement()?];
         if let Some(increment) = increment {
-            body.push(Statement::Expression(increment));
+            body.push(
+                self.program
+                    .add_statement(self.file_id, Statement::Expression(increment)),
+            );
         }
 
         let condition = condition.unwrap_or_else(|| {
@@ -324,21 +342,31 @@ impl<'collection, 'interner, 'program> Parser<'collection, 'interner, 'program> 
             )
         });
 
-        let while_loop = Statement::While {
-            condition,
-            body: Box::new(Statement::Block { statements: body }),
-        };
+        let while_body = self
+            .program
+            .add_statement(self.file_id, Statement::Block { statements: body });
+
+        let while_loop = self.program.add_statement(
+            self.file_id,
+            Statement::While {
+                condition,
+                body: while_body,
+            },
+        );
 
         if let Some(init) = init {
-            Ok(Statement::Block {
-                statements: vec![init, while_loop],
-            })
+            Ok(self.program.add_statement(
+                self.file_id,
+                Statement::Block {
+                    statements: vec![init, while_loop],
+                },
+            ))
         } else {
             Ok(while_loop)
         }
     }
 
-    fn if_statement(&mut self, if_token: Token) -> ParseResult<Statement> {
+    fn if_statement(&mut self, if_token: Token) -> ParseResult<StatementId> {
         let if_token_range = if_token.source_range();
         let left_paren = self.expect(TokenKind::LeftParen, "`(`", || {
             vec![
@@ -362,11 +390,14 @@ impl<'collection, 'interner, 'program> Parser<'collection, 'interner, 'program> 
             .then(|| self.statement())
             .transpose()?;
 
-        Ok(Statement::If {
-            condition,
-            then_branch: Box::new(then_branch),
-            else_branch: else_branch.map(Box::new),
-        })
+        Ok(self.program.add_statement(
+            self.file_id,
+            Statement::If {
+                condition,
+                then_branch,
+                else_branch,
+            },
+        ))
     }
 
     fn block_statement(&mut self, left_brace: Token) -> ParseResult<Statement> {
@@ -387,13 +418,15 @@ impl<'collection, 'interner, 'program> Parser<'collection, 'interner, 'program> 
         Ok(Statement::Block { statements })
     }
 
-    fn print_statement(&mut self, _: Token) -> ParseResult<Statement> {
+    fn print_statement(&mut self, _: Token) -> ParseResult<StatementId> {
         let value = self.expression()?;
         self.expect(TokenKind::SemiColon, "`;`", Vec::new)?;
-        Ok(Statement::Print(value))
+        Ok(self
+            .program
+            .add_statement(self.file_id, Statement::Print(value)))
     }
 
-    fn return_statement(&mut self, keyword: Token) -> ParseResult<Statement> {
+    fn return_statement(&mut self, keyword: Token) -> ParseResult<StatementId> {
         let value = if self.matches(|k| k == TokenKind::SemiColon).is_none() {
             let value = self.expression()?;
             self.expect(TokenKind::SemiColon, "`;`", Vec::new)?;
@@ -402,10 +435,12 @@ impl<'collection, 'interner, 'program> Parser<'collection, 'interner, 'program> 
             None
         };
 
-        Ok(Statement::Return { keyword, value })
+        Ok(self
+            .program
+            .add_statement(self.file_id, Statement::Return { keyword, value }))
     }
 
-    fn while_statement(&mut self, while_token: Token) -> ParseResult<Statement> {
+    fn while_statement(&mut self, while_token: Token) -> ParseResult<StatementId> {
         let while_token_range = while_token.source_range();
         let left_paren = self.expect(TokenKind::LeftParen, "`(`", || {
             vec![
@@ -424,16 +459,17 @@ impl<'collection, 'interner, 'program> Parser<'collection, 'interner, 'program> 
         })?;
 
         let body = self.statement()?;
-        Ok(Statement::While {
-            condition,
-            body: Box::new(body),
-        })
+        Ok(self
+            .program
+            .add_statement(self.file_id, Statement::While { condition, body }))
     }
 
-    fn expression_statement(&mut self) -> ParseResult<Statement> {
+    fn expression_statement(&mut self) -> ParseResult<StatementId> {
         let value = self.expression()?;
         self.expect(TokenKind::SemiColon, "`;`", Vec::new)?;
-        Ok(Statement::Expression(value))
+        Ok(self
+            .program
+            .add_statement(self.file_id, Statement::Expression(value)))
     }
 
     fn expression(&mut self) -> ParseResult<ExpressionId> {

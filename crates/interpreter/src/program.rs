@@ -16,6 +16,12 @@ impl ExpressionId {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct StatementId {
+    file_id: FileId,
+    stmt_id: usize,
+}
+
 #[derive(Debug, Default)]
 pub struct SourceStore {
     functions: Vec<Function>,
@@ -54,6 +60,20 @@ impl Program {
 
         expr_id
     }
+
+    pub fn add_statement(&mut self, file_id: FileId, statement: Statement) -> StatementId {
+        self.ensure_file(file_id);
+
+        // SAFETY: ensure_file will create a SourceStore at this file index.
+        let source_store = unsafe { self.programs.get_unchecked_mut(file_id.id()) };
+        let stmt_id = StatementId {
+            file_id,
+            stmt_id: source_store.statements.len(),
+        };
+
+        source_store.statements.push(statement);
+        stmt_id
+    }
 }
 
 impl Index<ExpressionId> for Program {
@@ -67,6 +87,21 @@ impl Index<ExpressionId> for Program {
                 .get_unchecked(index.file_id.id())
                 .expressions
                 .get_unchecked(index.expr_id)
+        }
+    }
+}
+
+impl Index<StatementId> for Program {
+    type Output = Statement;
+
+    fn index(&self, index: StatementId) -> &Self::Output {
+        // SAFETY: The only way to get a StatementId is through the add_statement function
+        // which only creates valid IDs.
+        unsafe {
+            self.programs
+                .get_unchecked(index.file_id.id())
+                .statements
+                .get_unchecked(index.stmt_id)
         }
     }
 }
