@@ -6,6 +6,7 @@ use codespan_reporting::{
 };
 use color_eyre::{eyre::eyre, eyre::Context, Result};
 use lasso::Rodeo;
+use program::Program;
 use resolver::Resolver;
 use rlox::{lexer::Lexer, source_file::FileId, DiagnosticEmitter};
 
@@ -14,6 +15,7 @@ mod environment;
 mod interpreter;
 mod lox_callable;
 mod parser;
+mod program;
 mod resolver;
 
 use crate::{interpreter::Interpreter, parser::Parser};
@@ -30,6 +32,7 @@ fn main() -> Result<()> {
     let stderr = StandardStream::stderr(ColorChoice::Always);
     let mut emitter = DiagnosticEmitter::new(&stderr);
 
+    let mut program = Program::new();
     let mut interner = Rodeo::default();
     // These two are used when instantiating a class.
     interner.get_or_intern_static("this");
@@ -38,7 +41,13 @@ fn main() -> Result<()> {
     let mut interpreter = Interpreter::new(&mut interner);
 
     for file in args {
-        run_file(&file, &mut emitter, &mut interpreter, &mut interner)?;
+        run_file(
+            &file,
+            &mut emitter,
+            &mut interpreter,
+            &mut interner,
+            &mut program,
+        )?;
     }
 
     Ok(())
@@ -49,13 +58,14 @@ fn run_file(
     emitter: &mut DiagnosticEmitter<'_>,
     interpreter: &mut Interpreter,
     interner: &mut Rodeo,
+    program: &mut Program,
 ) -> Result<()> {
     let contents =
         std::fs::read_to_string(path).with_context(|| eyre!("Failed to read file: '{}'", path))?;
 
     let file_id = emitter.add_file(path, &contents);
 
-    if let Some(diags) = run(&contents, emitter, interpreter, interner, file_id)? {
+    if let Some(diags) = run(&contents, emitter, interpreter, interner, file_id, program)? {
         emitter.emit_diagnostics(&diags)?;
 
         std::process::exit(64);
@@ -70,6 +80,7 @@ fn run(
     interpreter: &mut Interpreter,
     interner: &mut Rodeo,
     file_id: FileId,
+    program: &mut Program,
 ) -> Result<Option<Vec<Diagnostic<FileId>>>> {
     let scan_result = Lexer::scan_tokens(source, interner, file_id);
 
@@ -78,19 +89,19 @@ fn run(
         Err(diags) => return Ok(Some(diags)),
     };
 
-    let program = match Parser::parse(&tokens, interner, file_id) {
+    let parsed_program = match Parser::parse(&tokens, interner, file_id, program) {
         Ok(program) => program,
         Err(diags) => return Ok(Some(diags)),
     };
 
-    emitter.emit_diagnostics(&program.diags)?;
+    emitter.emit_diagnostics(&parsed_program.diags)?;
 
-    let mut resolver = Resolver::new(interpreter, file_id, interner);
-    if let Err(diag) = resolver.resolve(&program.program) {
+    let mut resolver = Resolver::new(interpreter, file_id, interner, program);
+    if let Err(diag) = resolver.resolve(&parsed_program.program) {
         return Ok(Some(vec![diag]));
     }
 
-    if let Err(diag) = interpreter.interpret(&program.program, emitter, interner) {
+    if let Err(diag) = interpreter.interpret(&parsed_program.program, emitter, interner, program) {
         return Ok(Some(vec![diag]));
     }
 

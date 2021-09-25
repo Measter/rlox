@@ -12,6 +12,10 @@ impl FileId {
     pub fn blank() -> Self {
         Self(0)
     }
+
+    pub fn id(self) -> usize {
+        self.0
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

@@ -8,8 +8,9 @@ use rlox::{
 };
 
 use crate::{
-    ast::{Expression, ExpressionId, Function, Statement},
+    ast::{ExpressionKind, Function, Statement},
     interpreter::Interpreter,
+    program::{ExpressionId, Program},
 };
 
 pub type ResolveResult = Result<(), Diagnostic<FileId>>;
@@ -43,6 +44,7 @@ enum ClassType {
 pub struct Resolver<'a> {
     interpreter: &'a mut Interpreter,
     interner: &'a mut Rodeo,
+    program: &'a Program,
     scopes: Vec<HashMap<Spur, Variable>>,
     current_function: FunctionType,
     current_class: ClassType,
@@ -50,7 +52,12 @@ pub struct Resolver<'a> {
 }
 
 impl<'a> Resolver<'a> {
-    pub fn new(interpreter: &'a mut Interpreter, file_id: FileId, interner: &'a mut Rodeo) -> Self {
+    pub fn new(
+        interpreter: &'a mut Interpreter,
+        file_id: FileId,
+        interner: &'a mut Rodeo,
+        program: &'a Program,
+    ) -> Self {
         Self {
             interpreter,
             scopes: Vec::new(),
@@ -58,6 +65,7 @@ impl<'a> Resolver<'a> {
             current_class: ClassType::None,
             file_id,
             interner,
+            program,
         }
     }
 
@@ -141,10 +149,10 @@ impl<'a> Resolver<'a> {
                 self.declare(*name)?;
                 self.define(*name);
 
-                self.resolve_class(*name, superclass.as_ref(), methods)?;
+                self.resolve_class(*name, *superclass, methods)?;
             }
             Statement::Expression(expr) | Statement::Print(expr) => {
-                self.resolve_expression(expr)?
+                self.resolve_expression(*expr)?
             }
             Statement::Function(func) => {
                 self.declare(func.name)?;
@@ -157,7 +165,7 @@ impl<'a> Resolver<'a> {
                 then_branch,
                 else_branch,
             } => {
-                self.resolve_expression(condition)?;
+                self.resolve_expression(*condition)?;
                 self.resolve_statement(then_branch)?;
                 if let Some(else_branch) = else_branch {
                     self.resolve_statement(else_branch)?;
@@ -165,7 +173,7 @@ impl<'a> Resolver<'a> {
             }
             Statement::Return { value, keyword } => {
                 let source_range = if let Some(value) = value.as_ref() {
-                    let end = value.source_range().end;
+                    let end = self.program[*value].source_range(self.program).end;
                     keyword.source_range().start..end
                 } else {
                     keyword.source_range()
@@ -188,18 +196,18 @@ impl<'a> Resolver<'a> {
                             )]);
                         return Err(diag);
                     }
-                    self.resolve_expression(value)?;
+                    self.resolve_expression(*value)?;
                 }
             }
             Statement::Variable { name, initializer } => {
                 self.declare(*name)?;
                 if let Some(init) = initializer {
-                    self.resolve_expression(init)?;
+                    self.resolve_expression(*init)?;
                 }
                 self.define(*name);
             }
             Statement::While { condition, body } => {
-                self.resolve_expression(condition)?;
+                self.resolve_expression(*condition)?;
                 self.resolve_statement(body)?;
             }
         }
@@ -210,12 +218,12 @@ impl<'a> Resolver<'a> {
     fn resolve_class(
         &mut self,
         name: Token,
-        superclass: Option<&Expression>,
+        superclass: Option<ExpressionId>,
         methods: &[Rc<Function>],
     ) -> ResolveResult {
         let enclosing_class = std::mem::replace(&mut self.current_class, ClassType::Class);
-        match superclass.as_ref() {
-            Some(Expression::Variable {
+        match superclass.map(|id| &self.program[id].kind) {
+            Some(ExpressionKind::Variable {
                 name: super_name, ..
             }) => {
                 self.current_class = ClassType::SubClass;
@@ -293,38 +301,39 @@ impl<'a> Resolver<'a> {
         Ok(())
     }
 
-    fn resolve_expression(&mut self, expression: &Expression) -> ResolveResult {
-        match expression {
-            Expression::Assign { name, value, id } => {
-                self.resolve_expression(value)?;
-                self.resolve_local(*id, *name)?;
+    fn resolve_expression(&mut self, expr_id: ExpressionId) -> ResolveResult {
+        match &self.program[expr_id].kind {
+            ExpressionKind::Assign { name, value } => {
+                self.resolve_expression(*value)?;
+                self.resolve_local(expr_id, *name)?;
             }
-            Expression::Binary { left, right, .. } | Expression::Logical { left, right, .. } => {
-                self.resolve_expression(left)?;
-                self.resolve_expression(right)?;
+            ExpressionKind::Binary { left, right, .. }
+            | ExpressionKind::Logical { left, right, .. } => {
+                self.resolve_expression(*left)?;
+                self.resolve_expression(*right)?;
             }
-            Expression::Call {
+            ExpressionKind::Call {
                 callee, arguments, ..
             } => {
-                self.resolve_expression(callee)?;
+                self.resolve_expression(*callee)?;
                 for arg in arguments {
-                    self.resolve_expression(arg)?;
+                    self.resolve_expression(*arg)?;
                 }
             }
-            Expression::Grouping { expression, .. }
-            | Expression::Get {
+            ExpressionKind::Grouping { expression, .. }
+            | ExpressionKind::Get {
                 object: expression, ..
             }
-            | Expression::Unary {
+            | ExpressionKind::Unary {
                 right: expression, ..
-            } => self.resolve_expression(expression)?,
+            } => self.resolve_expression(*expression)?,
 
-            Expression::Literal { .. } => {}
-            Expression::Set { value, object, .. } => {
-                self.resolve_expression(value)?;
-                self.resolve_expression(object)?;
+            ExpressionKind::Literal { .. } => {}
+            ExpressionKind::Set { value, object, .. } => {
+                self.resolve_expression(*value)?;
+                self.resolve_expression(*object)?;
             }
-            Expression::Super { keyword, id, .. } => {
+            ExpressionKind::Super { keyword, .. } => {
                 if self.current_class != ClassType::SubClass {
                     let diag = Diagnostic::error()
                         .with_message("can't use `super` outside of a subclass")
@@ -335,9 +344,9 @@ impl<'a> Resolver<'a> {
                     return Err(diag);
                 }
 
-                self.resolve_variable(*keyword, *id)?;
+                self.resolve_variable(*keyword, expr_id)?;
             }
-            Expression::This { keyword, id } => {
+            ExpressionKind::This { keyword } => {
                 if self.current_class == ClassType::None {
                     let diag = Diagnostic::error()
                         .with_message("can't use `this` outside of a class")
@@ -348,10 +357,10 @@ impl<'a> Resolver<'a> {
                     return Err(diag);
                 }
 
-                self.resolve_variable(*keyword, *id)?;
+                self.resolve_variable(*keyword, expr_id)?;
             }
-            Expression::Variable { name, id } => {
-                self.resolve_variable(*name, *id)?;
+            ExpressionKind::Variable { name } => {
+                self.resolve_variable(*name, expr_id)?;
             }
         }
 

@@ -9,6 +9,7 @@ use crate::{
     ast::Function,
     environment::{Environment, Object},
     interpreter::{EvaluateResult, Interpreter},
+    program::Program,
     DiagnosticEmitter,
 };
 
@@ -18,6 +19,7 @@ pub trait Callable: std::fmt::Debug {
         interpreter: &mut Interpreter,
         emitter: &mut DiagnosticEmitter<'_>,
         interner: &Rodeo,
+        program: &Program,
         args: Vec<Object>,
     ) -> EvaluateResult;
 
@@ -46,6 +48,7 @@ impl Callable for NativeCallable {
         _: &mut Interpreter,
         _: &mut DiagnosticEmitter<'_>,
         _: &Rodeo,
+        _: &Program,
         args: Vec<Object>,
     ) -> EvaluateResult {
         (self.func)(args)
@@ -106,6 +109,7 @@ impl Callable for LoxCallable {
         interpreter: &mut Interpreter,
         emitter: &mut DiagnosticEmitter<'_>,
         interner: &Rodeo,
+        program: &Program,
         args: Vec<Object>,
     ) -> EvaluateResult {
         let parent = self.closure.clone();
@@ -117,16 +121,20 @@ impl Callable for LoxCallable {
 
         let old_env = std::mem::replace(&mut interpreter.environment, Rc::new(RefCell::new(env)));
 
-        let ret_val =
-            match interpreter.evaluate_statement_block(&self.declaration.body, emitter, interner) {
-                Ok(Some(obj)) => obj,
-                Ok(None) => Object::Nil,
-                Err(diag) => {
-                    interpreter.environment = old_env;
-                    interpreter.had_runtime_error = true;
-                    return Err(diag);
-                }
-            };
+        let ret_val = match interpreter.evaluate_statement_block(
+            &self.declaration.body,
+            emitter,
+            interner,
+            program,
+        ) {
+            Ok(Some(obj)) => obj,
+            Ok(None) => Object::Nil,
+            Err(diag) => {
+                interpreter.environment = old_env;
+                interpreter.had_runtime_error = true;
+                return Err(diag);
+            }
+        };
 
         interpreter.environment = old_env;
         if self.is_initializer {
@@ -191,6 +199,7 @@ impl Callable for LoxClassConstructor {
         interpreter: &mut Interpreter,
         emitter: &mut DiagnosticEmitter<'_>,
         interner: &Rodeo,
+        program: &Program,
         args: Vec<Object>,
     ) -> EvaluateResult {
         let instance = LoxClassInstance {
@@ -206,8 +215,13 @@ impl Callable for LoxClassConstructor {
             self.definition.name.source_range(),
         );
         if let Some(init) = self.definition.find_method(init_token) {
-            init.bind(instance.clone(), interner)
-                .call(interpreter, emitter, interner, args)?;
+            init.bind(instance.clone(), interner).call(
+                interpreter,
+                emitter,
+                interner,
+                program,
+                args,
+            )?;
         }
 
         Ok(Object::LoxClassInstance(instance))

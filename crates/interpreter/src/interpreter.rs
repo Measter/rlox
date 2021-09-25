@@ -6,13 +6,14 @@ use lasso::Rodeo;
 use rlox::{
     source_file::FileId,
     token::{Token, TokenKind},
+    DiagnosticEmitter,
 };
 
 use crate::{
-    ast::{Expression, ExpressionId, Function, Statement},
+    ast::{ExpressionKind, Function, Statement},
     environment::{Environment, Object, StringObject},
     lox_callable::{LoxCallable, LoxClassConstructor, LoxClassDefinition, LoxClassInstance},
-    DiagnosticEmitter,
+    program::{ExpressionId, Program},
 };
 
 pub type EvaluateResult = Result<Object, Diagnostic<FileId>>;
@@ -28,20 +29,22 @@ fn get_literal(kind: TokenKind) -> Object {
 }
 
 fn make_secondary_variable_label(
-    expr: &Expression,
+    expr_id: ExpressionId,
     obj: &Object,
     env: &RefCell<Environment>,
+    program: &Program,
 ) -> Label<FileId> {
-    if let Expression::Variable { name, .. } = &expr {
+    let expr = &program[expr_id];
+    if let ExpressionKind::Variable { name, .. } = expr.kind {
         let env = env.borrow();
         let (source_id, source_range) = env
-            .source(*name)
+            .source(name)
             .expect("missing variable after defined check");
 
         Label::secondary(source_id, source_range)
             .with_message(format!("{} assigned here", obj.kind()))
     } else {
-        Label::secondary(expr.source_id(), expr.source_range()).with_message(obj.kind())
+        Label::secondary(expr.source_id(), expr.source_range(program)).with_message(obj.kind())
     }
 }
 
@@ -92,14 +95,15 @@ impl Interpreter {
 
     pub fn interpret(
         &mut self,
-        program: &[Statement],
+        top_level_statements: &[Statement],
         emitter: &mut DiagnosticEmitter<'_>,
         interner: &Rodeo,
+        program: &Program,
     ) -> Result<(), Diagnostic<FileId>> {
         self.did_print = false;
 
-        for stmnt in program {
-            self.evaluate_statement(stmnt, emitter, interner)?;
+        for stmnt in top_level_statements {
+            self.evaluate_statement(stmnt, emitter, interner, program)?;
         }
 
         Ok(())
@@ -110,11 +114,12 @@ impl Interpreter {
         stmnt: &Statement,
         emitter: &mut DiagnosticEmitter<'_>,
         interner: &Rodeo,
+        program: &Program,
     ) -> Result<Option<Object>, Diagnostic<FileId>> {
         match stmnt {
             Statement::Block { statements } => {
                 self.nest_scope();
-                let ret_val = self.evaluate_statement_block(statements, emitter, interner);
+                let ret_val = self.evaluate_statement_block(statements, emitter, interner, program);
                 self.pop_scope();
                 return ret_val;
             }
@@ -127,14 +132,15 @@ impl Interpreter {
                 self.evaluate_statement_class(
                     *name,
                     methods,
-                    superclass.as_ref(),
+                    *superclass,
                     source_range.clone(),
                     emitter,
                     interner,
+                    program,
                 )?;
             }
             Statement::Expression(expr) => {
-                self.evaluate_expression(expr, emitter, interner)?;
+                self.evaluate_expression(*expr, emitter, interner, program)?;
             }
             Statement::Function(func) => self.evaluate_statement_function(func.clone())?,
             Statement::If {
@@ -142,11 +148,11 @@ impl Interpreter {
                 then_branch,
                 else_branch,
             } => {
-                let res = self.evaluate_expression(condition, emitter, interner)?;
+                let res = self.evaluate_expression(*condition, emitter, interner, program)?;
                 let obj = if res.is_truthy() {
-                    self.evaluate_statement(then_branch, emitter, interner)?
+                    self.evaluate_statement(then_branch, emitter, interner, program)?
                 } else if let Some(else_branch) = else_branch.as_deref() {
-                    self.evaluate_statement(else_branch, emitter, interner)?
+                    self.evaluate_statement(else_branch, emitter, interner, program)?
                 } else {
                     None
                 };
@@ -155,25 +161,27 @@ impl Interpreter {
                     return Ok(obj);
                 }
             }
-            Statement::Print(expr) => self.evaluate_statement_print(expr, emitter, interner)?,
+            Statement::Print(expr) => {
+                self.evaluate_statement_print(*expr, emitter, interner, program)?
+            }
             Statement::Return { value, .. } => {
                 let obj = value
                     .as_ref()
-                    .map(|e| self.evaluate_expression(e, emitter, interner))
+                    .map(|e| self.evaluate_expression(*e, emitter, interner, program))
                     .transpose()?
                     .unwrap_or(Object::Nil);
 
                 return Ok(Some(obj));
             }
             Statement::Variable { name, initializer } => {
-                self.evaluate_statement_variable(*name, initializer.as_ref(), emitter, interner)?
+                self.evaluate_statement_variable(*name, *initializer, emitter, interner, program)?
             }
             Statement::While { condition, body } => {
                 while self
-                    .evaluate_expression(condition, emitter, interner)?
+                    .evaluate_expression(*condition, emitter, interner, program)?
                     .is_truthy()
                 {
-                    if let Some(obj) = self.evaluate_statement(body, emitter, interner)? {
+                    if let Some(obj) = self.evaluate_statement(body, emitter, interner, program)? {
                         return Ok(Some(obj));
                     }
                 }
@@ -188,9 +196,10 @@ impl Interpreter {
         statements: &[Statement],
         emitter: &mut DiagnosticEmitter<'_>,
         interner: &Rodeo,
+        program: &Program,
     ) -> Result<Option<Object>, Diagnostic<FileId>> {
         for statement in statements {
-            match self.evaluate_statement(statement, emitter, interner) {
+            match self.evaluate_statement(statement, emitter, interner, program) {
                 Ok(Some(obj)) => {
                     return Ok(Some(obj));
                 }
@@ -205,21 +214,23 @@ impl Interpreter {
         Ok(None)
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub fn evaluate_statement_class(
         &mut self,
         name: Token,
         methods: &[Rc<Function>],
-        superclass: Option<&Expression>,
+        superclass: Option<ExpressionId>,
         source_range: Range<usize>,
         emitter: &mut DiagnosticEmitter<'_>,
         interner: &Rodeo,
+        program: &Program,
     ) -> Result<(), Diagnostic<FileId>> {
-        let superclass_def = match superclass {
-            Some(Expression::Variable {
+        let superclass_def = match superclass.map(|s| &program[s].kind) {
+            Some(ExpressionKind::Variable {
                 name: super_name, ..
             }) => {
                 let expr = superclass.unwrap();
-                let super_obj = self.evaluate_expression(expr, emitter, interner)?;
+                let super_obj = self.evaluate_expression(expr, emitter, interner, program)?;
 
                 let super_constructor = if let Object::LoxClassConstructor(constructor) = super_obj
                 {
@@ -312,11 +323,12 @@ impl Interpreter {
 
     fn evaluate_statement_print(
         &mut self,
-        expr: &Expression,
+        expr: ExpressionId,
         emitter: &mut DiagnosticEmitter<'_>,
         interner: &Rodeo,
+        program: &Program,
     ) -> Result<(), Diagnostic<FileId>> {
-        let res = self.evaluate_expression(expr, emitter, interner)?;
+        let res = self.evaluate_expression(expr, emitter, interner, program)?;
         res.display(&mut self.stdout, interner)
             .expect("ICE: failed to print to stdout");
         println!();
@@ -328,16 +340,17 @@ impl Interpreter {
     fn evaluate_statement_variable(
         &mut self,
         name: Token,
-        initializer: Option<&Expression>,
+        initializer: Option<ExpressionId>,
         emitter: &mut DiagnosticEmitter<'_>,
         interner: &Rodeo,
+        program: &Program,
     ) -> Result<(), Diagnostic<FileId>> {
         let value = initializer
             .as_ref()
-            .map(|e| self.evaluate_expression(e, emitter, interner))
+            .map(|e| self.evaluate_expression(*e, emitter, interner, program))
             .unwrap_or(Ok(Object::Uninitialized))?;
 
-        let expression_source_range = initializer.map(|e| e.source_range());
+        let expression_source_range = initializer.map(|e| program[e].source_range(program));
 
         let mut env = self.environment.borrow_mut();
         env.define(name, expression_source_range, value);
@@ -347,33 +360,39 @@ impl Interpreter {
 
     fn evaluate_expression(
         &mut self,
-        expr: &Expression,
+        expr: ExpressionId,
         emitter: &mut DiagnosticEmitter<'_>,
         interner: &Rodeo,
+        program: &Program,
     ) -> EvaluateResult {
-        match expr {
-            Expression::Assign { name, value, id } => {
-                self.evaluate_expr_assign(*name, *id, value, emitter, interner)
+        match &program[expr].kind {
+            ExpressionKind::Assign { name, value } => {
+                self.evaluate_expr_assign(*name, expr, *value, emitter, interner, program)
             }
-            Expression::Binary {
+            ExpressionKind::Binary {
                 left,
                 operator,
                 right,
                 ..
-            } => self.evaluate_expr_binary(left, *operator, right, emitter, interner),
-            Expression::Call {
+            } => self.evaluate_expr_binary(*left, *operator, *right, emitter, interner, program),
+            ExpressionKind::Call {
                 callee,
                 arguments,
                 source_range,
                 ..
-            } => {
-                self.evaluate_expr_call(callee, arguments, source_range.clone(), emitter, interner)
+            } => self.evaluate_expr_call(
+                *callee,
+                arguments,
+                source_range.clone(),
+                emitter,
+                interner,
+                program,
+            ),
+            ExpressionKind::Grouping { expression, .. } => {
+                self.evaluate_expression(*expression, emitter, interner, program)
             }
-            Expression::Grouping { expression, .. } => {
-                self.evaluate_expression(expression, emitter, interner)
-            }
-            Expression::Get { object, name, .. } => {
-                let obj = self.evaluate_expression(object, emitter, interner)?;
+            ExpressionKind::Get { object, name, .. } => {
+                let obj = self.evaluate_expression(*object, emitter, interner, program)?;
 
                 if let Object::LoxClassInstance(instance) = obj {
                     LoxClassInstance::get(&instance, *name, interner)
@@ -382,29 +401,32 @@ impl Interpreter {
                         .with_message("only class instances have properties")
                         .with_labels(vec![
                             Label::primary(name.location.file_id, name.source_range()),
-                            Label::secondary(object.source_id(), object.source_range())
-                                .with_message(obj.kind()),
+                            Label::secondary(
+                                program[*object].source_id(),
+                                program[*object].source_range(program),
+                            )
+                            .with_message(obj.kind()),
                         ]);
 
                     Err(diag)
                 }
             }
-            Expression::Literal { value, .. } => Ok(get_literal(value.kind)),
-            Expression::Logical {
+            ExpressionKind::Literal { value, .. } => Ok(get_literal(value.kind)),
+            ExpressionKind::Logical {
                 left,
                 operator,
                 right,
                 ..
-            } => self.evaluate_expr_logical(left, *operator, right, emitter, interner),
-            Expression::Set {
+            } => self.evaluate_expr_logical(*left, *operator, *right, emitter, interner, program),
+            ExpressionKind::Set {
                 object,
                 name,
                 value,
                 ..
             } => {
-                let obj = self.evaluate_expression(object, emitter, interner)?;
+                let obj = self.evaluate_expression(*object, emitter, interner, program)?;
                 if let Object::LoxClassInstance(instance) = obj {
-                    let value = self.evaluate_expression(value, emitter, interner)?;
+                    let value = self.evaluate_expression(*value, emitter, interner, program)?;
 
                     let mut instance = instance.borrow_mut();
                     instance.set(*name, value.clone());
@@ -414,25 +436,26 @@ impl Interpreter {
                         .with_message("only class instances have properties")
                         .with_labels(vec![
                             Label::primary(name.location.file_id, name.source_range()),
-                            Label::secondary(object.source_id(), object.source_range())
-                                .with_message(obj.kind()),
+                            Label::secondary(
+                                program[*object].source_id(),
+                                program[*object].source_range(program),
+                            )
+                            .with_message(obj.kind()),
                         ]);
 
                     Err(diag)
                 }
             }
 
-            Expression::Super {
-                keyword,
-                method,
-                id,
-            } => self.evaluate_expr_super(*keyword, *method, *id, interner),
+            ExpressionKind::Super { keyword, method } => {
+                self.evaluate_expr_super(*keyword, *method, expr, interner)
+            }
 
-            Expression::Unary {
+            ExpressionKind::Unary {
                 operator, right, ..
-            } => self.evaluate_expr_unary(*operator, right, emitter, interner),
-            Expression::This { keyword: name, id } | Expression::Variable { name, id } => {
-                self.evaluate_expr_variable(*name, *id, emitter, interner)
+            } => self.evaluate_expr_unary(*operator, *right, emitter, interner, program),
+            ExpressionKind::This { keyword: name } | ExpressionKind::Variable { name } => {
+                self.evaluate_expr_variable(*name, expr, emitter, interner)
             }
         }
     }
@@ -503,13 +526,14 @@ impl Interpreter {
         &mut self,
         name: Token,
         expr_id: ExpressionId,
-        value_expr: &Expression,
+        value_expr: ExpressionId,
         emitter: &mut DiagnosticEmitter<'_>,
         interner: &Rodeo,
+        program: &Program,
     ) -> EvaluateResult {
-        let value = self.evaluate_expression(value_expr, emitter, interner)?;
+        let value = self.evaluate_expression(value_expr, emitter, interner, program)?;
 
-        let value_range = value_expr.source_range();
+        let value_range = program[value_expr].source_range(program);
         let res = if let Some(depth) = self.locals.get(&expr_id).copied() {
             let mut env = self.environment.borrow_mut();
             env.assign_at(name, depth, value_range, value.clone(), interner)
@@ -525,16 +549,17 @@ impl Interpreter {
 
     fn evaluate_expr_call(
         &mut self,
-        callee: &Expression,
-        arguments: &[Expression],
+        callee: ExpressionId,
+        arguments: &[ExpressionId],
         source_range: Range<usize>,
         emitter: &mut DiagnosticEmitter<'_>,
         interner: &Rodeo,
+        program: &Program,
     ) -> EvaluateResult {
-        let callee_obj = self.evaluate_expression(callee, emitter, interner)?;
+        let callee_obj = self.evaluate_expression(callee, emitter, interner, program)?;
         let mut evaluated_args = Vec::with_capacity(arguments.len());
-        for arg in arguments {
-            evaluated_args.push(self.evaluate_expression(arg, emitter, interner)?);
+        for &arg in arguments {
+            evaluated_args.push(self.evaluate_expression(arg, emitter, interner, program)?);
         }
 
         let callee_function = match callee_obj {
@@ -544,8 +569,13 @@ impl Interpreter {
                 let diag = Diagnostic::error()
                     .with_message("can only call functions and class constructors")
                     .with_labels(vec![
-                        Label::primary(callee.source_id(), source_range),
-                        make_secondary_variable_label(callee, &callee_obj, &self.environment),
+                        Label::primary(program[callee].source_id(), source_range),
+                        make_secondary_variable_label(
+                            callee,
+                            &callee_obj,
+                            &self.environment,
+                            program,
+                        ),
                     ]);
                 return Err(diag);
             }
@@ -558,20 +588,24 @@ impl Interpreter {
                     callee_function.arity(interner),
                     evaluated_args.len()
                 ))
-                .with_labels(vec![Label::primary(callee.source_id(), source_range)]);
+                .with_labels(vec![Label::primary(
+                    program[callee].source_id(),
+                    source_range,
+                )]);
             return Err(diag);
         }
 
-        callee_function.call(self, emitter, interner, evaluated_args)
+        callee_function.call(self, emitter, interner, program, evaluated_args)
     }
 
     fn evaluate_expr_logical(
         &mut self,
-        left_expr: &Expression,
+        left_expr: ExpressionId,
         operator: Token,
-        right_expr: &Expression,
+        right_expr: ExpressionId,
         emitter: &mut DiagnosticEmitter<'_>,
         interner: &Rodeo,
+        program: &Program,
     ) -> EvaluateResult {
         let maybe_invert: fn(bool) -> bool = match operator.kind {
             TokenKind::And => |b| !b,
@@ -592,29 +626,30 @@ impl Interpreter {
             }
         };
 
-        let left = self.evaluate_expression(left_expr, emitter, interner)?;
+        let left = self.evaluate_expression(left_expr, emitter, interner, program)?;
         if maybe_invert(left.is_truthy()) {
             Ok(left)
         } else {
-            self.evaluate_expression(right_expr, emitter, interner)
+            self.evaluate_expression(right_expr, emitter, interner, program)
         }
     }
 
     fn evaluate_expr_unary(
         &mut self,
         operator: Token,
-        right_expr: &Expression,
+        right_expr: ExpressionId,
         emitter: &mut DiagnosticEmitter<'_>,
         interner: &Rodeo,
+        program: &Program,
     ) -> EvaluateResult {
-        let right = self.evaluate_expression(right_expr, emitter, interner)?;
+        let right = self.evaluate_expression(right_expr, emitter, interner, program)?;
         match (&operator.kind, right) {
             (TokenKind::Minus, Object::Number(n)) => Ok(Object::Number(-n)),
             (TokenKind::Bang, obj) => Ok(Object::Boolean(!obj.is_truthy())),
 
             (TokenKind::Minus, right) => {
                 let range_start = operator.location.source_start;
-                let range_end = right_expr.source_range().end;
+                let range_end = program[right_expr].source_range(program).end;
                 let diag = Diagnostic::error()
                     .with_message(format!("unable to negate a {}", right.kind()))
                     .with_labels(vec![Label::primary(
@@ -643,14 +678,15 @@ impl Interpreter {
 
     fn evaluate_expr_binary(
         &mut self,
-        left_expr: &Expression,
+        left_expr_id: ExpressionId,
         operator: Token,
-        right_expr: &Expression,
+        right_expr_id: ExpressionId,
         emitter: &mut DiagnosticEmitter<'_>,
         interner: &Rodeo,
+        program: &Program,
     ) -> EvaluateResult {
-        let left = self.evaluate_expression(left_expr, emitter, interner)?;
-        let right = self.evaluate_expression(right_expr, emitter, interner)?;
+        let left = self.evaluate_expression(left_expr_id, emitter, interner, program)?;
+        let right = self.evaluate_expression(right_expr_id, emitter, interner, program)?;
 
         use Object::*;
         use TokenKind::*;
@@ -695,8 +731,13 @@ impl Interpreter {
 
                 let labels = vec![
                     Label::primary(operator.location.file_id, operator.source_range()),
-                    make_secondary_variable_label(left_expr, &left, &self.environment),
-                    make_secondary_variable_label(right_expr, &right, &self.environment),
+                    make_secondary_variable_label(left_expr_id, &left, &self.environment, program),
+                    make_secondary_variable_label(
+                        right_expr_id,
+                        &right,
+                        &self.environment,
+                        program,
+                    ),
                 ];
 
                 return Err(Diagnostic::error().with_message(msg).with_labels(labels));

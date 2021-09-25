@@ -8,7 +8,8 @@ use rlox::{
 };
 
 use crate::{
-    ast::{Expression, ExpressionId, Function, Statement},
+    ast::{ExpressionKind, Function, Statement},
+    program::{ExpressionId, Program},
     FileId,
 };
 
@@ -64,18 +65,23 @@ pub struct ParseSuccess {
 }
 
 #[derive(Debug)]
-pub struct Parser<'collection, 'interner> {
+pub struct Parser<'collection, 'interner, 'program> {
     source: &'collection [Token],
     tokens: Peekable<Iter<'collection, Token>>, // Yay nested iterators!
     current: usize,
     recoverable_diags: Vec<Diagnostic<FileId>>,
     interner: &'interner mut Rodeo,
+    program: &'program mut Program,
     file_id: FileId,
-    expr_id: usize,
 }
 
-impl<'collection, 'interner> Parser<'collection, 'interner> {
-    fn new(tokens: &'collection [Token], interner: &'interner mut Rodeo, file_id: FileId) -> Self {
+impl<'collection, 'interner, 'program> Parser<'collection, 'interner, 'program> {
+    fn new(
+        tokens: &'collection [Token],
+        interner: &'interner mut Rodeo,
+        file_id: FileId,
+        program: &'program mut Program,
+    ) -> Self {
         Self {
             source: tokens,
             tokens: tokens.iter().peekable(),
@@ -83,22 +89,17 @@ impl<'collection, 'interner> Parser<'collection, 'interner> {
             recoverable_diags: Vec::new(),
             interner,
             file_id,
-            expr_id: 0,
+            program,
         }
-    }
-
-    fn expression_id(&mut self) -> ExpressionId {
-        let id = ExpressionId::new(self.expr_id, self.file_id);
-        self.expr_id += 1;
-        id
     }
 
     pub fn parse(
         tokens: &'collection [Token],
         interner: &'interner mut Rodeo,
         file_id: FileId,
+        program: &'program mut Program,
     ) -> Result<ParseSuccess, Vec<Diagnostic<FileId>>> {
-        let mut parser = Self::new(tokens, interner, file_id);
+        let mut parser = Self::new(tokens, interner, file_id, program);
         let mut diags = Vec::new();
         let mut statements = Vec::new();
 
@@ -135,7 +136,9 @@ impl<'collection, 'interner> Parser<'collection, 'interner> {
             .matches(|k| k == TokenKind::Less)
             .map(|_| {
                 let super_name = self.expect(TokenKind::Identifier, "ident", Vec::new)?;
-                Ok(Expression::variable(super_name, self.expression_id()))
+                Ok(self
+                    .program
+                    .add_expression(self.file_id, ExpressionKind::variable(super_name)))
             })
             .transpose()?;
 
@@ -307,8 +310,9 @@ impl<'collection, 'interner> Parser<'collection, 'interner> {
         }
 
         let condition = condition.unwrap_or_else(|| {
-            Expression::literal(
-                Token {
+            self.program.add_expression(
+                self.file_id,
+                ExpressionKind::literal(Token {
                     kind: TokenKind::BooleanLiteral(true),
                     lexeme: self.interner.get_or_intern_static("true"),
                     location: SourceLocation {
@@ -316,8 +320,7 @@ impl<'collection, 'interner> Parser<'collection, 'interner> {
                         source_start: 0,
                         len: 0,
                     },
-                },
-                self.expression_id(),
+                }),
             )
         });
 
@@ -433,27 +436,26 @@ impl<'collection, 'interner> Parser<'collection, 'interner> {
         Ok(Statement::Expression(value))
     }
 
-    fn expression(&mut self) -> ParseResult<Expression> {
+    fn expression(&mut self) -> ParseResult<ExpressionId> {
         self.assignment()
     }
 
-    fn assignment(&mut self) -> ParseResult<Expression> {
+    fn assignment(&mut self) -> ParseResult<ExpressionId> {
         let expr = self.logical_or()?;
 
         if let Some(equals) = self.matches(|k| k == TokenKind::Equal) {
             let value = self.assignment()?;
 
-            match expr {
-                Expression::Variable { name, .. } => {
-                    return Ok(Expression::assign(name, value, self.expression_id()))
+            match self.program[expr].kind {
+                ExpressionKind::Variable { name, .. } => {
+                    return Ok(self
+                        .program
+                        .add_expression(self.file_id, ExpressionKind::assign(name, value)));
                 }
-                Expression::Get { object, name, .. } => {
-                    return Ok(Expression::Set {
-                        object,
-                        name,
-                        value: Box::new(value),
-                        id: self.expression_id(),
-                    })
+                ExpressionKind::Get { object, name, .. } => {
+                    return Ok(self
+                        .program
+                        .add_expression(self.file_id, ExpressionKind::set(object, name, value)));
                 }
                 _ => (),
             }
@@ -471,27 +473,31 @@ impl<'collection, 'interner> Parser<'collection, 'interner> {
         Ok(expr)
     }
 
-    fn logical_or(&mut self) -> ParseResult<Expression> {
+    fn logical_or(&mut self) -> ParseResult<ExpressionId> {
         self.binary_expression(
             Self::logical_and,
             |k| k == TokenKind::Or,
-            Expression::logical,
+            ExpressionKind::logical,
         )
     }
 
-    fn logical_and(&mut self) -> ParseResult<Expression> {
-        self.binary_expression(Self::equality, |k| k == TokenKind::And, Expression::logical)
+    fn logical_and(&mut self) -> ParseResult<ExpressionId> {
+        self.binary_expression(
+            Self::equality,
+            |k| k == TokenKind::And,
+            ExpressionKind::logical,
+        )
     }
 
-    fn equality(&mut self) -> ParseResult<Expression> {
+    fn equality(&mut self) -> ParseResult<ExpressionId> {
         self.binary_expression(
             Self::comparison,
             |k| matches!(k, TokenKind::BangEqual | TokenKind::EqualEqual),
-            Expression::binary,
+            ExpressionKind::binary,
         )
     }
 
-    fn comparison(&mut self) -> ParseResult<Expression> {
+    fn comparison(&mut self) -> ParseResult<ExpressionId> {
         self.binary_expression(
             Self::term,
             |k| {
@@ -503,52 +509,56 @@ impl<'collection, 'interner> Parser<'collection, 'interner> {
                         | TokenKind::LessEqual
                 )
             },
-            Expression::binary,
+            ExpressionKind::binary,
         )
     }
 
-    fn term(&mut self) -> ParseResult<Expression> {
+    fn term(&mut self) -> ParseResult<ExpressionId> {
         self.binary_expression(
             Self::factor,
             |k| matches!(k, TokenKind::Minus | TokenKind::Plus),
-            Expression::binary,
+            ExpressionKind::binary,
         )
     }
 
-    fn factor(&mut self) -> ParseResult<Expression> {
+    fn factor(&mut self) -> ParseResult<ExpressionId> {
         self.binary_expression(
             Self::unary,
             |k| matches!(k, TokenKind::Slash | TokenKind::Star | TokenKind::Percent),
-            Expression::binary,
+            ExpressionKind::binary,
         )
     }
 
     fn binary_expression(
         &mut self,
-        next_func: fn(&mut Self) -> Result<Expression, Diagnostic<FileId>>,
+        next_func: fn(&mut Self) -> Result<ExpressionId, Diagnostic<FileId>>,
         kinds: fn(&TokenKind) -> bool,
-        constructor: fn(Expression, Token, Expression, ExpressionId) -> Expression,
-    ) -> ParseResult<Expression> {
+        constructor: fn(ExpressionId, Token, ExpressionId) -> ExpressionKind,
+    ) -> ParseResult<ExpressionId> {
         let mut expr = next_func(self)?;
 
         while let Some(operator) = self.matches(kinds) {
             let right = next_func(self)?;
-            expr = constructor(expr, operator, right, self.expression_id());
+            expr = self
+                .program
+                .add_expression(self.file_id, constructor(expr, operator, right));
         }
 
         Ok(expr)
     }
 
-    fn unary(&mut self) -> ParseResult<Expression> {
+    fn unary(&mut self) -> ParseResult<ExpressionId> {
         if let Some(operator) = self.matches(|k| matches!(k, TokenKind::Bang | TokenKind::Minus)) {
             let right = self.unary()?;
-            Ok(Expression::unary(operator, right, self.expression_id()))
+            Ok(self
+                .program
+                .add_expression(self.file_id, ExpressionKind::unary(operator, right)))
         } else {
             self.call()
         }
     }
 
-    fn call(&mut self) -> ParseResult<Expression> {
+    fn call(&mut self) -> ParseResult<ExpressionId> {
         let mut expr = self.primary()?;
 
         loop {
@@ -556,7 +566,9 @@ impl<'collection, 'interner> Parser<'collection, 'interner> {
                 expr = self.finish_call(expr)?;
             } else if self.matches(|k| k == TokenKind::Dot).is_some() {
                 let name = self.expect(TokenKind::Identifier, "ident", Vec::new)?;
-                expr = Expression::get(expr, name, self.expression_id());
+                expr = self
+                    .program
+                    .add_expression(self.file_id, ExpressionKind::get(expr, name));
             } else {
                 break;
             }
@@ -565,7 +577,7 @@ impl<'collection, 'interner> Parser<'collection, 'interner> {
         Ok(expr)
     }
 
-    fn finish_call(&mut self, callee: Expression) -> ParseResult<Expression> {
+    fn finish_call(&mut self, callee: ExpressionId) -> ParseResult<ExpressionId> {
         let mut arguments = Vec::new();
         let left_paren = self.previous();
 
@@ -577,8 +589,8 @@ impl<'collection, 'interner> Parser<'collection, 'interner> {
                         let diag = Diagnostic::error()
                             .with_message("can't have more than 255 parameters")
                             .with_labels(vec![Label::primary(
-                                callee.source_id(),
-                                callee.source_range(),
+                                self.program[callee].source_id(),
+                                self.program[callee].source_range(self.program),
                             )]);
                         return Err(diag);
                     }
@@ -598,22 +610,24 @@ impl<'collection, 'interner> Parser<'collection, 'interner> {
             }
         };
 
-        let range_start = callee.source_range().start;
+        let range_start = self.program[callee].source_range(self.program).start;
         let range_end = right_paren.source_range().end;
 
-        Ok(Expression::call(
-            callee,
-            arguments,
-            range_start..range_end,
-            self.expression_id(),
+        Ok(self.program.add_expression(
+            self.file_id,
+            ExpressionKind::call(callee, arguments, range_start..range_end),
         ))
     }
 
-    fn primary(&mut self) -> ParseResult<Expression> {
+    fn primary(&mut self) -> ParseResult<ExpressionId> {
         let next_token = self.advance();
         match next_token.kind {
-            kind if kind.is_literal() => Ok(Expression::literal(next_token, self.expression_id())),
-            TokenKind::Identifier => Ok(Expression::variable(next_token, self.expression_id())),
+            kind if kind.is_literal() => Ok(self
+                .program
+                .add_expression(self.file_id, ExpressionKind::literal(next_token))),
+            TokenKind::Identifier => Ok(self
+                .program
+                .add_expression(self.file_id, ExpressionKind::variable(next_token))),
             TokenKind::LeftParen => {
                 let left_paren = next_token;
                 let expr = self.expression()?;
@@ -631,9 +645,13 @@ impl<'collection, 'interner> Parser<'collection, 'interner> {
                 let right_range = right_paren.source_range();
                 let range = left_range.start..right_range.end;
 
-                Ok(Expression::grouping(expr, range, self.expression_id()))
+                Ok(self
+                    .program
+                    .add_expression(self.file_id, ExpressionKind::grouping(expr, range)))
             }
-            TokenKind::This => Ok(Expression::this(next_token, self.expression_id())),
+            TokenKind::This => Ok(self
+                .program
+                .add_expression(self.file_id, ExpressionKind::this(next_token))),
             TokenKind::Super => {
                 self.expect(TokenKind::Dot, "`.`", Vec::new)?;
                 let method = self.expect(TokenKind::Identifier, "ident", || {
@@ -643,10 +661,9 @@ impl<'collection, 'interner> Parser<'collection, 'interner> {
                     ]
                 })?;
 
-                Ok(Expression::super_keyword(
-                    next_token,
-                    method,
-                    self.expression_id(),
+                Ok(self.program.add_expression(
+                    self.file_id,
+                    ExpressionKind::super_keyword(next_token, method),
                 ))
             }
             kind => {
