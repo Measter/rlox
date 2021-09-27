@@ -18,9 +18,11 @@ use crate::value::Value;
 pub enum OpCode {
     Add,
     Constant,
+    DefineGlobal,
     Divide,
     False,
     Equal,
+    GetGlobal,
     Greater,
     Less,
     Negate,
@@ -28,7 +30,10 @@ pub enum OpCode {
     Modulo,
     Nil,
     Not,
+    Pop,
+    Print,
     Return,
+    SetGlobal,
     Subtract,
     True,
 }
@@ -37,11 +42,12 @@ impl OpCode {
     fn len(self) -> usize {
         use OpCode::*;
         match self {
-            Constant => 2,
+            Constant | DefineGlobal | GetGlobal | SetGlobal => 2,
             Add | Divide | Multiply | Modulo | Negate | Not | Subtract => 1,
-            Return => 1,
+            Print | Return => 1,
             False | True | Nil => 1,
             Equal | Greater | Less => 1,
+            Pop => 1,
         }
     }
 
@@ -114,6 +120,14 @@ impl Chunk {
         emitter: &DiagnosticEmitter<'_>,
         interner: &Rodeo,
     ) {
+        writeln!(stream, "-- Constants --").unwrap();
+        for (idx, constant) in self.constants.iter().enumerate() {
+            write!(stream, "{:03} ", idx).unwrap();
+            constant.dump(stream, interner);
+            stream.write_all(b"\n").unwrap();
+        }
+
+        writeln!(stream, "\n-- Disassembly --").unwrap();
         let mut offset = 0;
         while offset < self.code.len() {
             offset += self.disassemble_instruction(stream, emitter, offset, interner);
@@ -151,7 +165,12 @@ impl Chunk {
         }
         let op = self.code[offset];
         match OpCode::try_from_primitive(op) {
-            Ok(OpCode::Constant) => {
+            Ok(
+                op @ OpCode::Constant
+                | op @ OpCode::DefineGlobal
+                | op @ OpCode::GetGlobal
+                | op @ OpCode::SetGlobal,
+            ) => {
                 let constant_id = *self
                     .code
                     .get(offset + 1)
@@ -160,8 +179,8 @@ impl Chunk {
                     .constants
                     .get(constant_id as usize)
                     .expect("ICE: Invalid constant ID");
-                write!(stream, "{:<16?} {} '", OpCode::Constant, constant_id,).unwrap();
-                constant_value.display(stream, interner, false);
+                write!(stream, "{:<16?} {} '", op, constant_id,).unwrap();
+                constant_value.dump(stream, interner);
                 stream.write_all(b"'\n").unwrap();
                 OpCode::Constant.len()
             }

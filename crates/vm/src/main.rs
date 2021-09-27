@@ -97,7 +97,7 @@ fn run(
 
     let chunk = match Compiler::compile(&tokens, emitter, interner) {
         Ok(chunk) => chunk,
-        Err(diag) => return Ok(Some(vec![diag])),
+        Err(diag) => return Ok(Some(diag)),
     };
 
     if dump_chunk {

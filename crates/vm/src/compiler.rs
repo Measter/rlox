@@ -1,7 +1,8 @@
-use std::{rc::Rc, slice::Iter};
+use std::{iter::Peekable, slice::Iter};
 
 use codespan_reporting::diagnostic::{Diagnostic, Label};
-use lasso::Rodeo;
+use fnv::FnvHashMap as HashMap;
+use lasso::{Rodeo, Spur};
 use rlox::{
     source_file::{FileId, SourceLocation},
     token::{Token, TokenKind},
@@ -9,9 +10,8 @@ use rlox::{
 };
 
 use crate::{
-    chunk::{Chunk, OpCode},
-    object::ObjString,
-    value::Value,
+    chunk::{Chunk, ConstId, OpCode},
+    value::{StringObject, Value},
 };
 
 type ParseResult<T> = Result<T, Diagnostic<FileId>>;
@@ -57,7 +57,7 @@ impl Precedence {
 
 #[derive(Clone, Copy, Default)]
 struct ParseRule {
-    prefix: Option<fn(&mut Compiler<'_, '_>) -> ParseResult<()>>,
+    prefix: Option<fn(&mut Compiler<'_, '_>, bool) -> ParseResult<()>>,
     infix: Option<fn(&mut Compiler<'_, '_>) -> ParseResult<()>>,
     precedence: Precedence,
 }
@@ -66,7 +66,7 @@ impl ParseRule {
     fn get_rule(kind: TokenKind) -> Self {
         match kind {
             TokenKind::Bang => Self {
-                prefix: Some(|c| c.unary()),
+                prefix: Some(|c, _| c.unary()),
                 ..Default::default()
             },
             TokenKind::BangEqual => Self {
@@ -88,20 +88,20 @@ impl ParseRule {
             },
 
             TokenKind::LeftParen => Self {
-                prefix: Some(|c| c.grouping()),
+                prefix: Some(|c, _| c.grouping()),
                 ..Default::default()
             },
 
             TokenKind::NilLiteral | TokenKind::BooleanLiteral(_) => Self {
-                prefix: Some(|c| c.literal()),
+                prefix: Some(|c, _| c.literal()),
                 ..Default::default()
             },
             TokenKind::NumberLiteral(_) => Self {
-                prefix: Some(|c| c.number()),
+                prefix: Some(|c, _| c.number()),
                 ..Default::default()
             },
             TokenKind::StringLiteral(_) => Self {
-                prefix: Some(|c| c.string()),
+                prefix: Some(|c, _| c.string()),
                 ..Default::default()
             },
 
@@ -111,7 +111,7 @@ impl ParseRule {
                 precedence: Precedence::Factor,
             },
             TokenKind::Minus => Self {
-                prefix: Some(|c| c.unary()),
+                prefix: Some(|c, _| c.unary()),
                 infix: Some(|c| c.binary()),
                 precedence: Precedence::Term,
             },
@@ -120,6 +120,11 @@ impl ParseRule {
                 infix: Some(|c| c.binary()),
                 precedence: Precedence::Term,
             },
+
+            TokenKind::Identifier => Self {
+                prefix: Some(|c, b| c.variable(b)),
+                ..Default::default()
+            },
             _ => Default::default(),
         }
     }
@@ -127,18 +132,19 @@ impl ParseRule {
 
 pub struct Compiler<'collection, 'interner> {
     source: &'collection [Token],
-    tokens: Iter<'collection, Token>,
+    tokens: Peekable<Iter<'collection, Token>>,
     next_idx: usize,
     current_token: Token,
     interner: &'interner Rodeo,
     chunk: Chunk,
+    var_const_ids: HashMap<Spur, ConstId>,
 }
 
 impl<'collection, 'interner> Compiler<'collection, 'interner> {
     fn new(source: &'collection [Token], interner: &'interner Rodeo) -> Self {
         Self {
             source,
-            tokens: source.iter(),
+            tokens: source.iter().peekable(),
             interner,
             next_idx: 0,
             current_token: Token {
@@ -147,6 +153,7 @@ impl<'collection, 'interner> Compiler<'collection, 'interner> {
                 location: SourceLocation::default(),
             },
             chunk: Chunk::new(),
+            var_const_ids: HashMap::default(),
         }
     }
 
@@ -154,16 +161,23 @@ impl<'collection, 'interner> Compiler<'collection, 'interner> {
         source: &'collection [Token],
         emitter: &mut DiagnosticEmitter<'_>,
         interner: &'interner Rodeo,
-    ) -> ParseResult<Chunk> {
+    ) -> Result<Chunk, Vec<Diagnostic<FileId>>> {
         let mut compiler = Compiler::new(source, interner);
+        let mut diags = Vec::new();
 
         compiler.advance();
-        compiler.expression()?;
-        compiler.expect(TokenKind::Eof, "EOF", Vec::new)?;
-
+        while !compiler.matches(|k| k == TokenKind::Eof) {
+            if let Err(e) = compiler.declaration() {
+                diags.push(e);
+                compiler.synchronize();
+            }
+        }
+        if let Err(e) = compiler.expect(TokenKind::Eof, "EOF", Vec::new) {
+            diags.push(e);
+        }
         compiler.end_compiler();
 
-        Ok(compiler.chunk)
+        diags.is_empty().then(|| compiler.chunk).ok_or(diags)
     }
 
     fn end_compiler(&mut self) {
@@ -237,7 +251,10 @@ impl<'collection, 'interner> Compiler<'collection, 'interner> {
         let previous = self.previous();
 
         match previous.kind {
-            TokenKind::NumberLiteral(n) => self.emit_constant(Value::Number(n), previous.location),
+            TokenKind::NumberLiteral(n) => {
+                self.emit_constant(Value::Number(n), previous.location)?;
+                Ok(())
+            }
             _ => {
                 let next_lexeme = self.interner.resolve(&previous.lexeme);
                 let diag = Diagnostic::error()
@@ -259,9 +276,29 @@ impl<'collection, 'interner> Compiler<'collection, 'interner> {
             panic!("ICE: Expected StringLiteral, found {:?}", token.kind);
         };
 
-        let obj = Value::Obj(Rc::new(ObjString::Literal(key)));
+        let obj = Value::String(StringObject::Literal(key));
 
-        self.emit_constant(obj, token.location)
+        self.emit_constant(obj, token.location)?;
+        Ok(())
+    }
+
+    fn variable(&mut self, can_assign: bool) -> ParseResult<()> {
+        let prev = self.previous();
+        self.named_variable(prev, can_assign)
+    }
+
+    fn named_variable(&mut self, prev: Token, can_assign: bool) -> ParseResult<()> {
+        let arg = self.identifier_constant(prev)?;
+
+        if can_assign && self.matches(|k| k == TokenKind::Equal) {
+            self.expression()?;
+            self.chunk.write(OpCode::SetGlobal, prev.location);
+        } else {
+            self.chunk.write(OpCode::GetGlobal, prev.location);
+        }
+
+        self.chunk.write(arg, prev.location);
+        Ok(())
     }
 
     fn unary(&mut self) -> ParseResult<()> {
@@ -281,8 +318,8 @@ impl<'collection, 'interner> Compiler<'collection, 'interner> {
         self.advance();
         let prev_token = self.previous();
 
-        match ParseRule::get_rule(prev_token.kind).prefix {
-            Some(prefix_rule) => prefix_rule(self)?,
+        let prefix_rule = match ParseRule::get_rule(prev_token.kind).prefix {
+            Some(prefix_rule) => prefix_rule,
             None => {
                 let prev_lexeme = self.interner.resolve(&prev_token.lexeme);
                 let diag = Diagnostic::error()
@@ -296,12 +333,26 @@ impl<'collection, 'interner> Compiler<'collection, 'interner> {
             }
         };
 
+        let can_assign = precendence <= Precedence::Assignment;
+        prefix_rule(self, can_assign)?;
+
         while precendence <= ParseRule::get_rule(self.current_token.kind).precedence {
             self.advance();
             match ParseRule::get_rule(self.previous().kind).infix {
                 Some(f) => f(self)?,
                 None => panic!("ICE: Expected infix function"),
             }
+        }
+
+        if can_assign && self.matches(|k| k == TokenKind::Equal) {
+            let equal_token = self.previous();
+            let diag = Diagnostic::error()
+                .with_message("Invalid assignment target.")
+                .with_labels(vec![Label::primary(
+                    equal_token.location.file_id,
+                    equal_token.source_range(),
+                )]);
+            return Err(diag);
         }
 
         Ok(())
@@ -311,16 +362,92 @@ impl<'collection, 'interner> Compiler<'collection, 'interner> {
         self.parse_precedence(Precedence::Assignment)
     }
 
+    fn statement(&mut self) -> ParseResult<()> {
+        if self.matches(|k| k == TokenKind::Print) {
+            self.print_statement()
+        } else {
+            self.expression_statement()
+        }
+    }
+
+    fn print_statement(&mut self) -> ParseResult<()> {
+        let print_token = self.previous();
+        self.expression()?;
+        self.expect(TokenKind::SemiColon, "`;`", Vec::new)?;
+        self.chunk.write(OpCode::Print, print_token.location);
+
+        Ok(())
+    }
+
+    fn expression_statement(&mut self) -> ParseResult<()> {
+        self.expression()?;
+        self.expect(TokenKind::SemiColon, "`;`", Vec::new)?;
+        self.chunk.write(OpCode::Pop, self.current_token.location);
+
+        Ok(())
+    }
+
+    fn declaration(&mut self) -> ParseResult<()> {
+        if self.matches(|k| k == TokenKind::Var) {
+            self.var_declaration()
+        } else {
+            self.statement()
+        }
+    }
+
+    fn var_declaration(&mut self) -> ParseResult<()> {
+        let global = self.parse_variable()?;
+
+        if self.matches(|k| k == TokenKind::Equal) {
+            self.expression()?;
+        } else {
+            self.emit_constant(Value::Nil, self.current_token.location)?;
+        }
+
+        self.expect(TokenKind::SemiColon, "`;`", Vec::new)?;
+
+        self.define_variable(global)
+    }
+
+    fn define_variable(&mut self, global: ConstId) -> ParseResult<()> {
+        self.chunk
+            .write(OpCode::DefineGlobal, self.current_token.location);
+        self.chunk.write(global, self.current_token.location);
+
+        Ok(())
+    }
+
+    fn parse_variable(&mut self) -> ParseResult<ConstId> {
+        self.expect(TokenKind::Identifier, "IDENT", Vec::new)?;
+        let prev = self.previous();
+        self.identifier_constant(prev)
+    }
+
+    fn identifier_constant(&mut self, token: Token) -> ParseResult<ConstId> {
+        match self.var_const_ids.get(&token.lexeme) {
+            Some(&ident) => Ok(ident),
+            None => {
+                let ident = self.chunk.add_constant(
+                    Value::String(StringObject::Literal(token.lexeme)),
+                    token.location,
+                )?;
+
+                self.var_const_ids.insert(token.lexeme, ident);
+                Ok(ident)
+            }
+        }
+    }
+
     fn emit_return(&mut self) {
         let prev = self.previous().location;
         self.chunk.write(OpCode::Return, prev);
     }
 
-    fn emit_constant(&mut self, value: Value, location: SourceLocation) -> ParseResult<()> {
+    fn emit_constant(&mut self, value: Value, location: SourceLocation) -> ParseResult<ConstId> {
         let id = self.chunk.add_constant(value, location)?;
         self.chunk.write(OpCode::Constant, location);
         self.chunk.write(id, location);
-        Ok(())
+        Ok(id)
     }
 
     fn expect(
@@ -350,6 +477,12 @@ impl<'collection, 'interner> Compiler<'collection, 'interner> {
         Err(diag)
     }
 
+    fn matches(&mut self, kinds: impl Fn(&TokenKind) -> bool) -> bool {
+        kinds(&self.current_token.kind)
+            .then(|| self.advance())
+            .is_some()
+    }
+
     fn advance(&mut self) -> Token {
         let current = self
             .tokens
@@ -358,7 +491,7 @@ impl<'collection, 'interner> Compiler<'collection, 'interner> {
                 self.next_idx += 1;
                 *t
             })
-            .unwrap_or_else(|| self.previous());
+            .unwrap_or_else(|| self.current_token);
         self.current_token = current;
 
         current
@@ -370,5 +503,18 @@ impl<'collection, 'interner> Compiler<'collection, 'interner> {
             .or_else(|| self.source.last())
             .copied()
             .unwrap()
+    }
+
+    fn synchronize(&mut self) {
+        while self.current_token.kind != TokenKind::Eof {
+            if self.previous().kind == TokenKind::SemiColon
+                || self.current_token.kind.is_statement_start()
+            {
+                return;
+            }
+            self.advance();
+        }
+
+        self.advance();
     }
 }

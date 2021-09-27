@@ -3,12 +3,12 @@ use std::{
     convert::TryInto,
     fmt::Write,
     io::{StdoutLock, Write as _},
-    rc::Rc,
 };
 
 use codespan_reporting::diagnostic::{Diagnostic, Label};
 use color_eyre::Result;
-use lasso::Rodeo;
+use fnv::FnvHashMap as HashMap;
+use lasso::{Rodeo, Spur};
 use rlox::{
     source_file::{FileId, SourceLocation},
     DiagnosticEmitter,
@@ -16,10 +16,10 @@ use rlox::{
 
 use crate::{
     chunk::{Chunk, OpCode},
-    object::ObjKind,
-    value::Value,
+    value::{StringObject, Value},
 };
 
+#[derive(Clone)]
 struct RuntimeValue {
     value: Value,
     source: SourceLocation,
@@ -34,6 +34,7 @@ impl std::fmt::Debug for RuntimeValue {
 pub struct Vm<'stdout> {
     trace: bool,
     value_stack: Vec<RuntimeValue>,
+    globals: HashMap<Spur, RuntimeValue>,
     stdout: StdoutLock<'stdout>,
 }
 
@@ -43,6 +44,7 @@ impl<'stdout> Vm<'stdout> {
             trace,
             value_stack: Vec::new(),
             stdout,
+            globals: HashMap::default(),
         }
     }
 
@@ -80,13 +82,9 @@ impl<'stdout> Vm<'stdout> {
             }
 
             // This bit feels hacky...
-            (Value::Obj(b), Value::Obj(a))
-                if a.kind() == ObjKind::String
-                    && b.kind() == ObjKind::String
-                    && op == OpCode::Add =>
-            {
-                let result = a.concatinate_strings(&*b, interner);
-                left.value = Value::Obj(Rc::new(result));
+            (Value::String(b), Value::String(a)) if op == OpCode::Add => {
+                let result = a.concatinate_strings(&b, interner);
+                left.value = Value::String(result);
                 left.source = left.source.merge(right.source);
                 Ok(())
             }
@@ -161,11 +159,11 @@ impl<'stdout> Vm<'stdout> {
                 stderr.write_all(b"  [").unwrap();
                 let mut vals = self.value_stack.iter();
                 if let Some(val) = vals.next() {
-                    val.value.display(&mut stderr, interner, true);
+                    val.value.dump(&mut stderr, interner);
                 }
                 for val in vals {
                     stderr.write_all(b", ").unwrap();
-                    val.value.display(&mut stderr, interner, true);
+                    val.value.dump(&mut stderr, interner);
                 }
                 stderr.write_all(b"]\n").unwrap();
                 chunk.disassemble_instruction(&mut stderr, emitter, idx, interner);
@@ -217,12 +215,71 @@ impl<'stdout> Vm<'stdout> {
                     value: Value::Boolean(true),
                     source: op_location,
                 }),
+
                 OpCode::Constant => {
                     let value = self.read_constant(chunk, &mut ip).clone();
                     self.value_stack.push(RuntimeValue {
                         value,
                         source: op_location,
                     });
+                }
+                OpCode::DefineGlobal => {
+                    let variable = self.read_constant(chunk, &mut ip).clone();
+                    let name_id = match variable {
+                        Value::String(StringObject::Literal(id)) => id,
+                        _ => panic!("ICE: Global identifier wasn't a string literal"),
+                    };
+
+                    let value = self
+                        .value_stack
+                        .last()
+                        .expect("ICE: DefineGlobal requires ID")
+                        .clone();
+
+                    self.globals.insert(name_id, value);
+                    self.value_stack.pop();
+                }
+                OpCode::GetGlobal => {
+                    let variable = self.read_constant(chunk, &mut ip).clone();
+                    let name_id = match variable {
+                        Value::String(StringObject::Literal(id)) => id,
+                        _ => panic!("ICE: Global identifier wasn't a string literal"),
+                    };
+
+                    let value = match self.globals.get(&name_id) {
+                        Some(v) => v,
+                        None => {
+                            let diag = Diagnostic::error()
+                                .with_message("Undefined variable")
+                                .with_labels(vec![Label::primary(file_id, op_location.range())]);
+                            return Err(diag);
+                        }
+                    };
+
+                    self.value_stack.push(value.clone());
+                }
+                OpCode::SetGlobal => {
+                    let variable = self.read_constant(chunk, &mut ip).clone();
+                    let name_id = match variable {
+                        Value::String(StringObject::Literal(id)) => id,
+                        _ => panic!("ICE: Global identifier wasn't a string literal"),
+                    };
+
+                    let value = self
+                        .value_stack
+                        .last()
+                        .expect("ICE: DefineGlobal requires ID")
+                        .clone();
+
+                    match self.globals.get_mut(&name_id) {
+                        Some(v) => *v = value,
+                        None => {
+                            let diag = Diagnostic::error()
+                                .with_message("Undefined variable")
+                                .with_labels(vec![Label::primary(file_id, op_location.range())]);
+                            return Err(diag);
+                        }
+                    }
                 }
 
                 OpCode::Equal => {
@@ -247,14 +304,19 @@ impl<'stdout> Vm<'stdout> {
                     interner,
                 )?,
 
-                OpCode::Return => {
+                OpCode::Pop => {
+                    self.value_stack
+                        .pop()
+                        .expect("ICE: Expected value on stack");
+                }
+                OpCode::Print => {
                     let value = self
                         .value_stack
                         .pop()
                         .expect("ICE: Expected value on stack");
-                    value.value.display(&mut self.stdout, interner, false);
-                    return Ok(());
+                    value.value.display(&mut self.stdout, interner);
                 }
+                OpCode::Return => return Ok(()),
             }
         }
     }
