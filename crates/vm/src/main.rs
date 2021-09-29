@@ -1,3 +1,4 @@
+mod ast_compiler;
 mod chunk;
 mod object;
 mod token_compiler;
@@ -13,11 +14,16 @@ use color_eyre::{
     Result,
 };
 use lasso::Rodeo;
-use rlox::{lexer::Lexer, source_file::FileId, DiagnosticEmitter};
+use rlox::{
+    lexer::Lexer, parser::Parser, program::Program, resolver::Resolver, source_file::FileId,
+    DiagnosticEmitter,
+};
 use structopt::StructOpt;
 use token_compiler::TokenCompiler;
 
 use vm::Vm;
+
+use crate::ast_compiler::AstCompiler;
 
 #[derive(Debug, StructOpt)]
 struct Args {
@@ -28,6 +34,10 @@ struct Args {
     /// Print a disassembly of each chunk before executing.
     #[structopt(long)]
     dump: bool,
+
+    /// Use the AST compiler.
+    #[structopt(long = "ast")]
+    ast_compiler: bool,
 
     files: Vec<String>,
 }
@@ -40,21 +50,25 @@ fn main() -> Result<()> {
     let stderr = StandardStream::stderr(ColorChoice::Always);
     let stdout = std::io::stdout();
     let mut emitter = DiagnosticEmitter::new(&stderr);
+
     let mut interner = Rodeo::default();
-    interner.get_or_intern_static("this");
-    interner.get_or_intern_static("init");
-    interner.get_or_intern_static("super");
+    let this_lexeme = interner.get_or_intern_static("this");
+    let init_lexeme = interner.get_or_intern_static("init");
+    let super_lexeme = interner.get_or_intern_static("super");
     interner.get_or_intern_static("nil");
+
+    let mut program = Program::new(this_lexeme, init_lexeme, super_lexeme);
+
     let mut vm = Vm::new(args.trace, stdout.lock());
 
     for file in &args.files {
         run_file(
+            &args,
             file,
             &mut emitter,
             &mut vm,
             &mut interner,
-            args.dump,
-            args.trace,
+            &mut program,
         )?;
     }
 
@@ -62,19 +76,19 @@ fn main() -> Result<()> {
 }
 
 fn run_file(
+    args: &Args,
     path: &str,
     emitter: &mut DiagnosticEmitter<'_>,
     vm: &mut Vm,
     interner: &mut Rodeo,
-    dump_chunk: bool,
-    trace: bool,
+    program: &mut Program,
 ) -> Result<()> {
     let contents =
         std::fs::read_to_string(path).with_context(|| eyre!("Failed to read file: '{}'", path))?;
 
     let file_id = emitter.add_file(path, &contents);
 
-    if let Some(diags) = run(&contents, emitter, vm, interner, file_id, dump_chunk, trace)? {
+    if let Some(diags) = run(args, &contents, emitter, vm, interner, program, file_id)? {
         emitter.emit_diagnostics(&diags)?;
         std::process::exit(64);
     }
@@ -83,13 +97,13 @@ fn run_file(
 }
 
 fn run(
+    args: &Args,
     source: &str,
     emitter: &mut DiagnosticEmitter<'_>,
     vm: &mut Vm,
     interner: &mut Rodeo,
+    program: &mut Program,
     file_id: FileId,
-    dump_chunk: bool,
-    trace: bool,
 ) -> Result<Option<Vec<Diagnostic<FileId>>>> {
     let scan_result = Lexer::scan_tokens(source, interner, file_id);
     let tokens = match scan_result {
@@ -97,19 +111,37 @@ fn run(
         Err(diags) => return Ok(Some(diags)),
     };
 
-    let chunk = match TokenCompiler::compile(&tokens, emitter, interner) {
-        Ok(chunk) => chunk,
-        Err(diag) => return Ok(Some(diag)),
+    let chunk = if args.ast_compiler {
+        let parsed_program = match Parser::parse(&tokens, interner, file_id, program) {
+            Ok(program) => program,
+            Err(diags) => return Ok(Some(diags)),
+        };
+
+        emitter.emit_diagnostics(&parsed_program.diags)?;
+
+        if let Err(diag) = Resolver::resolve(file_id, interner, program, &parsed_program.program) {
+            return Ok(Some(vec![diag]));
+        }
+
+        match AstCompiler::compile(&parsed_program.program, interner, program, file_id) {
+            Ok(chunk) => chunk,
+            Err(diag) => return Ok(Some(vec![diag])),
+        }
+    } else {
+        match TokenCompiler::compile(&tokens, emitter, interner) {
+            Ok(chunk) => chunk,
+            Err(diag) => return Ok(Some(diag)),
+        }
     };
 
-    if dump_chunk {
+    if args.dump {
         eprintln!("=== CHUNK ===");
         let mut stderr = std::io::stderr();
         chunk.disassemble(&mut stderr, emitter, interner);
     }
 
-    if trace {
-        if dump_chunk {
+    if args.trace {
+        if args.dump {
             eprintln!("\n");
         }
 
