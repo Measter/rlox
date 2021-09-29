@@ -15,25 +15,27 @@ use color_eyre::{
 use compiler::Compiler;
 use lasso::Rodeo;
 use rlox::{lexer::Lexer, source_file::FileId, DiagnosticEmitter};
+use structopt::StructOpt;
 
 use vm::Vm;
+
+#[derive(Debug, StructOpt)]
+struct Args {
+    /// Print a disassembly of the next instruction to be executed along with the value stack.
+    #[structopt(long)]
+    trace: bool,
+
+    /// Print a disassembly of each chunk before executing.
+    #[structopt(long)]
+    dump: bool,
+
+    files: Vec<String>,
+}
 
 fn main() -> Result<()> {
     color_eyre::install()?;
 
-    let mut trace = false;
-    let mut dump_chunk = false;
-
-    for (key, _) in std::env::vars() {
-        trace |= key == "LOX_TRACE";
-        dump_chunk |= key == "LOX_DUMP";
-    }
-
-    let args: Vec<_> = std::env::args().skip(1).collect();
-    if args.is_empty() {
-        eprintln!("Usage: rloxum [scripts]");
-        std::process::exit(64);
-    }
+    let args = Args::from_args();
 
     let stderr = StandardStream::stderr(ColorChoice::Always);
     let stdout = std::io::stdout();
@@ -43,16 +45,16 @@ fn main() -> Result<()> {
     interner.get_or_intern_static("this");
     interner.get_or_intern_static("init");
     interner.get_or_intern_static("super");
-    let mut vm = Vm::new(trace, stdout.lock());
+    let mut vm = Vm::new(args.trace, stdout.lock());
 
-    for file in args {
+    for file in &args.files {
         run_file(
-            &file,
+            file,
             &mut emitter,
             &mut vm,
             &mut interner,
-            dump_chunk,
-            trace,
+            args.dump,
+            args.trace,
         )?;
     }
 
