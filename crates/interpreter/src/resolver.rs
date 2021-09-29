@@ -3,15 +3,13 @@ use std::collections::HashMap;
 use codespan_reporting::diagnostic::{Diagnostic, Label};
 use lasso::{Rodeo, Spur};
 use rlox::{
+    ast::{ExpressionKind, Statement},
+    program::{ExpressionId, FunctionId, Program, StatementId},
     source_file::{FileId, SourceLocation},
     token::Token,
 };
 
-use crate::{
-    ast::{ExpressionKind, Statement},
-    interpreter::Interpreter,
-    program::{ExpressionId, FunctionId, Program, StatementId},
-};
+use crate::interpreter::Interpreter;
 
 pub type ResolveResult = Result<(), Diagnostic<FileId>>;
 

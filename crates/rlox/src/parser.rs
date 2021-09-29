@@ -2,14 +2,12 @@ use std::{iter::Peekable, slice::Iter};
 
 use codespan_reporting::diagnostic::{Diagnostic, Label};
 use lasso::Rodeo;
-use rlox::{
-    source_file::SourceLocation,
-    token::{Token, TokenKind},
-};
 
 use crate::{
     ast::{ExpressionKind, Function, Statement},
     program::{ExpressionId, Program, StatementId},
+    source_file::SourceLocation,
+    token::{Token, TokenKind},
     FileId,
 };
 

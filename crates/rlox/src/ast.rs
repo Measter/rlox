@@ -1,9 +1,8 @@
 use std::ops::Range;
 
-use rlox::token::Token;
-
 use crate::{
     program::{ExpressionId, FunctionId, Program, StatementId},
+    token::Token,
     FileId,
 };
 

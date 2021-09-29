@@ -1,9 +1,11 @@
 use std::ops::Index;
 
 use lasso::Spur;
-use rlox::source_file::FileId;
 
-use crate::ast::{Expression, ExpressionKind, Function, Statement};
+use crate::{
+    ast::{Expression, ExpressionKind, Function, Statement},
+    source_file::FileId,
+};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct ExpressionId {

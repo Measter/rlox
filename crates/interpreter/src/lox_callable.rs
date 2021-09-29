@@ -3,12 +3,14 @@ use std::{cell::RefCell, rc::Rc};
 use codespan_reporting::diagnostic::{Diagnostic, Label};
 use fnv::FnvHashMap as HashMap;
 use lasso::{Rodeo, Spur};
-use rlox::token::Token;
+use rlox::{
+    program::{FunctionId, Program},
+    token::Token,
+};
 
 use crate::{
     environment::{Environment, Object},
     interpreter::{EvaluateResult, Interpreter},
-    program::{FunctionId, Program},
     DiagnosticEmitter,
 };
 

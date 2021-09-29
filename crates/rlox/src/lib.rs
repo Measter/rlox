@@ -9,7 +9,10 @@ use color_eyre::eyre::{Context, Result};
 
 pub mod source_file;
 use source_file::{FileId, SourceFile};
+pub mod ast;
 pub mod lexer;
+pub mod parser;
+pub mod program;
 pub mod token;
 
 pub struct DiagnosticEmitter<'a> {

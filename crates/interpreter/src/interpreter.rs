@@ -4,16 +4,16 @@ use codespan_reporting::diagnostic::{Diagnostic, Label};
 use fnv::FnvHashMap as HashMap;
 use lasso::Rodeo;
 use rlox::{
+    ast::{ExpressionKind, Statement},
+    program::{ExpressionId, FunctionId, Program, StatementId},
     source_file::FileId,
     token::{Token, TokenKind},
     DiagnosticEmitter,
 };
 
 use crate::{
-    ast::{ExpressionKind, Statement},
     environment::{Environment, Object, StringObject},
     lox_callable::{LoxCallable, LoxClassConstructor, LoxClassDefinition, LoxClassInstance},
-    program::{ExpressionId, FunctionId, Program, StatementId},
 };
 
 pub type EvaluateResult = Result<Object, Diagnostic<FileId>>;
