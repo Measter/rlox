@@ -57,8 +57,8 @@ impl Precedence {
 
 #[derive(Clone, Copy, Default)]
 struct ParseRule {
-    prefix: Option<fn(&mut Compiler<'_, '_>, bool) -> ParseResult<()>>,
-    infix: Option<fn(&mut Compiler<'_, '_>) -> ParseResult<()>>,
+    prefix: Option<fn(&mut TokenCompiler<'_, '_>, bool) -> ParseResult<()>>,
+    infix: Option<fn(&mut TokenCompiler<'_, '_>) -> ParseResult<()>>,
     precedence: Precedence,
 }
 
@@ -130,7 +130,7 @@ impl ParseRule {
     }
 }
 
-pub struct Compiler<'collection, 'interner> {
+pub struct TokenCompiler<'collection, 'interner> {
     source: &'collection [Token],
     tokens: Peekable<Iter<'collection, Token>>,
     next_idx: usize,
@@ -140,7 +140,7 @@ pub struct Compiler<'collection, 'interner> {
     constant_ids: HashMap<Spur, ConstId>,
 }
 
-impl<'collection, 'interner> Compiler<'collection, 'interner> {
+impl<'collection, 'interner> TokenCompiler<'collection, 'interner> {
     fn new(source: &'collection [Token], interner: &'interner Rodeo) -> Self {
         Self {
             source,
@@ -162,7 +162,7 @@ impl<'collection, 'interner> Compiler<'collection, 'interner> {
         emitter: &mut DiagnosticEmitter<'_>,
         interner: &'interner Rodeo,
     ) -> Result<Chunk, Vec<Diagnostic<FileId>>> {
-        let mut compiler = Compiler::new(source, interner);
+        let mut compiler = TokenCompiler::new(source, interner);
         let mut diags = Vec::new();
 
         compiler.advance();

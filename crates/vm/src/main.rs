@@ -1,6 +1,6 @@
 mod chunk;
-mod compiler;
 mod object;
+mod token_compiler;
 mod value;
 mod vm;
 
@@ -12,10 +12,10 @@ use color_eyre::{
     eyre::{eyre, Context},
     Result,
 };
-use compiler::Compiler;
 use lasso::Rodeo;
 use rlox::{lexer::Lexer, source_file::FileId, DiagnosticEmitter};
 use structopt::StructOpt;
+use token_compiler::TokenCompiler;
 
 use vm::Vm;
 
@@ -97,7 +97,7 @@ fn run(
         Err(diags) => return Ok(Some(diags)),
     };
 
-    let chunk = match Compiler::compile(&tokens, emitter, interner) {
+    let chunk = match TokenCompiler::compile(&tokens, emitter, interner) {
         Ok(chunk) => chunk,
         Err(diag) => return Ok(Some(diag)),
     };
