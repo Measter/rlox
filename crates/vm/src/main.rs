@@ -41,10 +41,10 @@ fn main() -> Result<()> {
     let stdout = std::io::stdout();
     let mut emitter = DiagnosticEmitter::new(&stderr);
     let mut interner = Rodeo::default();
-    // These three are used when instantiating a class.
     interner.get_or_intern_static("this");
     interner.get_or_intern_static("init");
     interner.get_or_intern_static("super");
+    interner.get_or_intern_static("nil");
     let mut vm = Vm::new(args.trace, stdout.lock());
 
     for file in &args.files {

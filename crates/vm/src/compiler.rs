@@ -137,7 +137,7 @@ pub struct Compiler<'collection, 'interner> {
     current_token: Token,
     interner: &'interner Rodeo,
     chunk: Chunk,
-    var_const_ids: HashMap<Spur, ConstId>,
+    constant_ids: HashMap<Spur, ConstId>,
 }
 
 impl<'collection, 'interner> Compiler<'collection, 'interner> {
@@ -153,7 +153,7 @@ impl<'collection, 'interner> Compiler<'collection, 'interner> {
                 location: SourceLocation::default(),
             },
             chunk: Chunk::new(),
-            var_const_ids: HashMap::default(),
+            constant_ids: HashMap::default(),
         }
     }
 
@@ -252,7 +252,7 @@ impl<'collection, 'interner> Compiler<'collection, 'interner> {
 
         match previous.kind {
             TokenKind::NumberLiteral(n) => {
-                self.emit_constant(Value::Number(n), previous.location)?;
+                self.emit_constant(Value::Number(n), previous.lexeme, previous.location)?;
                 Ok(())
             }
             _ => {
@@ -278,7 +278,7 @@ impl<'collection, 'interner> Compiler<'collection, 'interner> {
 
         let obj = Value::String(StringObject::Literal(key));
 
-        self.emit_constant(obj, token.location)?;
+        self.emit_constant(obj, token.lexeme, token.location)?;
         Ok(())
     }
 
@@ -401,7 +401,11 @@ impl<'collection, 'interner> Compiler<'collection, 'interner> {
         if self.matches(|k| k == TokenKind::Equal) {
             self.expression()?;
         } else {
-            self.emit_constant(Value::Nil, self.current_token.location)?;
+            self.emit_constant(
+                Value::Nil,
+                self.interner.get("nil").unwrap(),
+                self.current_token.location,
+            )?;
         }
 
         self.expect(TokenKind::SemiColon, "`;`", Vec::new)?;
@@ -424,7 +428,7 @@ impl<'collection, 'interner> Compiler<'collection, 'interner> {
     }
 
     fn identifier_constant(&mut self, token: Token) -> ParseResult<ConstId> {
-        match self.var_const_ids.get(&token.lexeme) {
+        match self.constant_ids.get(&token.lexeme) {
             Some(&ident) => Ok(ident),
             None => {
                 let ident = self.chunk.add_constant(
@@ -432,7 +436,7 @@ impl<'collection, 'interner> Compiler<'collection, 'interner> {
                     token.location,
                 )?;
 
-                self.var_const_ids.insert(token.lexeme, ident);
+                self.constant_ids.insert(token.lexeme, ident);
                 Ok(ident)
             }
         }
@@ -443,8 +447,20 @@ impl<'collection, 'interner> Compiler<'collection, 'interner> {
         self.chunk.write(OpCode::Return, prev);
     }
 
-    fn emit_constant(&mut self, value: Value, location: SourceLocation) -> ParseResult<ConstId> {
-        let id = self.chunk.add_constant(value, location)?;
+    fn emit_constant(
+        &mut self,
+        value: Value,
+        lexeme: Spur,
+        location: SourceLocation,
+    ) -> ParseResult<ConstId> {
+        let id = match self.constant_ids.get(&lexeme) {
+            Some(id) => *id,
+            None => {
+                let id = self.chunk.add_constant(value, location)?;
+                self.constant_ids.insert(lexeme, id);
+                id
+            }
+        };
         self.chunk.write(OpCode::Constant, location);
         self.chunk.write(id, location);
         Ok(id)
