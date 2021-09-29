@@ -179,7 +179,8 @@ impl Chunk {
                     .constants
                     .get(constant_id as usize)
                     .expect("ICE: Invalid constant ID");
-                write!(stream, "{:<16?} {} '", op, constant_id,).unwrap();
+                let buf = format!("{:?}", op);
+                write!(stream, "{:<15} {:0>3} '", buf, constant_id,).unwrap();
                 constant_value.dump(stream, interner);
                 stream.write_all(b"'\n").unwrap();
                 OpCode::Constant.len()
