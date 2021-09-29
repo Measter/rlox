@@ -13,6 +13,7 @@ pub mod ast;
 pub mod lexer;
 pub mod parser;
 pub mod program;
+pub mod resolver;
 pub mod token;
 
 pub struct DiagnosticEmitter<'a> {

@@ -1,15 +1,13 @@
-use std::collections::HashMap;
-
 use codespan_reporting::diagnostic::{Diagnostic, Label};
+use fnv::FnvHashMap as HashMap;
 use lasso::{Rodeo, Spur};
-use rlox::{
+
+use crate::{
     ast::{ExpressionKind, Statement},
     program::{ExpressionId, FunctionId, Program, StatementId},
     source_file::{FileId, SourceLocation},
     token::Token,
 };
-
-use crate::interpreter::Interpreter;
 
 pub type ResolveResult = Result<(), Diagnostic<FileId>>;
 
@@ -40,25 +38,20 @@ enum ClassType {
 }
 
 pub struct Resolver<'a> {
-    interpreter: &'a mut Interpreter,
     interner: &'a mut Rodeo,
     program: &'a Program,
     scopes: Vec<HashMap<Spur, Variable>>,
+    local_depths: HashMap<ExpressionId, usize>,
     current_function: FunctionType,
     current_class: ClassType,
     file_id: FileId,
 }
 
 impl<'a> Resolver<'a> {
-    pub fn new(
-        interpreter: &'a mut Interpreter,
-        file_id: FileId,
-        interner: &'a mut Rodeo,
-        program: &'a Program,
-    ) -> Self {
+    fn new(file_id: FileId, interner: &'a mut Rodeo, program: &'a Program) -> Self {
         Self {
-            interpreter,
             scopes: Vec::new(),
+            local_depths: HashMap::default(),
             current_function: FunctionType::None,
             current_class: ClassType::None,
             file_id,
@@ -67,11 +60,27 @@ impl<'a> Resolver<'a> {
         }
     }
 
-    pub fn resolve(&mut self, statements: &[StatementId]) -> ResolveResult {
+    pub fn resolve(
+        file_id: FileId,
+        interner: &'a mut Rodeo,
+        program: &'a mut Program,
+        statements: &[StatementId],
+    ) -> ResolveResult {
+        let locals = {
+            let mut resolver = Resolver::new(file_id, interner, program);
+            resolver.resolve_statement_list(statements)?;
+            resolver.local_depths
+        };
+
+        program.resolve_locals(locals);
+
+        Ok(())
+    }
+
+    fn resolve_statement_list(&mut self, statements: &[StatementId]) -> ResolveResult {
         for &statement in statements {
             self.resolve_statement(statement)?;
         }
-
         Ok(())
     }
 
@@ -123,7 +132,7 @@ impl<'a> Resolver<'a> {
     fn resolve_local(&mut self, expr_id: ExpressionId, name: Token) -> ResolveResult {
         for (depth, scope) in self.scopes.iter().rev().enumerate() {
             if scope.contains_key(&name.lexeme) {
-                self.interpreter.resolve(expr_id, depth);
+                self.local_depths.insert(expr_id, depth);
                 break;
             }
         }
@@ -135,7 +144,7 @@ impl<'a> Resolver<'a> {
         match &self.program[statement] {
             Statement::Block { statements } => {
                 self.begin_scope();
-                self.resolve(statements)?;
+                self.resolve_statement_list(statements)?;
                 self.end_scope();
             }
             Statement::Class {
@@ -294,7 +303,7 @@ impl<'a> Resolver<'a> {
             self.define(param);
         }
 
-        self.resolve(&func.body)?;
+        self.resolve_statement_list(&func.body)?;
 
         self.end_scope();
         self.current_function = enclosing_function;

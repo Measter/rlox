@@ -51,7 +51,6 @@ fn make_secondary_variable_label(
 pub struct Interpreter {
     pub had_runtime_error: bool,
     pub globals: Rc<RefCell<Environment>>,
-    pub locals: HashMap<ExpressionId, usize>,
     pub environment: Rc<RefCell<Environment>>,
     pub did_print: bool,
     pub stdout: Stdout,
@@ -65,7 +64,6 @@ impl Interpreter {
             had_runtime_error: false,
             environment: globals.clone(),
             globals,
-            locals: HashMap::default(),
             did_print: false,
             stdout: std::io::stdout(),
         }
@@ -87,10 +85,6 @@ impl Interpreter {
                 .map(Clone::clone)
                 .expect("ICE: attempted to pop global scope")
         };
-    }
-
-    pub fn resolve(&mut self, expr_id: ExpressionId, depth: usize) {
-        self.locals.insert(expr_id, depth);
     }
 
     pub fn interpret(
@@ -463,7 +457,7 @@ impl Interpreter {
                 operator, right, ..
             } => self.evaluate_expr_unary(*operator, *right, emitter, interner, program),
             ExpressionKind::This { keyword: name } | ExpressionKind::Variable { name } => {
-                self.evaluate_expr_variable(*name, expr, emitter, interner)
+                self.evaluate_expr_variable(*name, expr, emitter, interner, program)
             }
         }
     }
@@ -476,7 +470,9 @@ impl Interpreter {
         interner: &Rodeo,
         program: &Program,
     ) -> EvaluateResult {
-        let distance = *self.locals.get(&id).expect("ICE: failed to find `super`");
+        let distance = program
+            .local_depth(id)
+            .expect("ICE: failed to find `super`");
 
         let env = self.environment.borrow();
         let (super_class, _) = env.get_at(keyword, distance, interner)?;
@@ -543,7 +539,7 @@ impl Interpreter {
         let value = self.evaluate_expression(value_expr, emitter, interner, program)?;
 
         let value_range = program[value_expr].source_range(program);
-        let res = if let Some(depth) = self.locals.get(&expr_id).copied() {
+        let res = if let Some(depth) = program.local_depth(expr_id) {
             let mut env = self.environment.borrow_mut();
             env.assign_at(name, depth, value_range, value.clone(), interner)
         } else {
@@ -764,8 +760,9 @@ impl Interpreter {
         expr_id: ExpressionId,
         emitter: &mut DiagnosticEmitter<'_>,
         interner: &Rodeo,
+        program: &Program,
     ) -> EvaluateResult {
-        let res = if let Some(depth) = self.locals.get(&expr_id).copied() {
+        let res = if let Some(depth) = program.local_depth(expr_id) {
             let env = self.environment.borrow();
             env.get_at(name, depth, interner)
         } else {

@@ -1,5 +1,6 @@
-use std::ops::Index;
+use std::{hash::Hash, ops::Index};
 
+use fnv::FnvHashMap as HashMap;
 use lasso::Spur;
 
 use crate::{
@@ -41,6 +42,7 @@ pub struct SourceStore {
 #[derive(Debug)]
 pub struct Program {
     programs: Vec<SourceStore>,
+    local_depths: HashMap<ExpressionId, usize>,
     this_lexeme: Spur,
     init_lexeme: Spur,
     super_lexeme: Spur,
@@ -50,6 +52,7 @@ impl Program {
     pub fn new(this_lexeme: Spur, init_lexeme: Spur, super_lexeme: Spur) -> Self {
         Self {
             programs: Vec::new(),
+            local_depths: HashMap::default(),
             this_lexeme,
             init_lexeme,
             super_lexeme,
@@ -113,6 +116,14 @@ impl Program {
         source_store.functions.push(function);
 
         func_id
+    }
+
+    pub fn local_depth(&self, expr: ExpressionId) -> Option<usize> {
+        self.local_depths.get(&expr).copied()
+    }
+
+    pub fn resolve_locals(&mut self, depths: HashMap<ExpressionId, usize>) {
+        self.local_depths.extend(depths);
     }
 }
 

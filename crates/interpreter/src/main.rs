@@ -6,15 +6,14 @@ use codespan_reporting::{
 };
 use color_eyre::{eyre::eyre, eyre::Context, Result};
 use lasso::Rodeo;
-use resolver::Resolver;
 use rlox::{
-    lexer::Lexer, parser::Parser, program::Program, source_file::FileId, DiagnosticEmitter,
+    lexer::Lexer, parser::Parser, program::Program, resolver::Resolver, source_file::FileId,
+    DiagnosticEmitter,
 };
 
 mod environment;
 mod interpreter;
 mod lox_callable;
-mod resolver;
 
 use crate::interpreter::Interpreter;
 
@@ -94,8 +93,7 @@ fn run(
 
     emitter.emit_diagnostics(&parsed_program.diags)?;
 
-    let mut resolver = Resolver::new(interpreter, file_id, interner, program);
-    if let Err(diag) = resolver.resolve(&parsed_program.program) {
+    if let Err(diag) = Resolver::resolve(file_id, interner, program, &parsed_program.program) {
         return Ok(Some(vec![diag]));
     }
 
