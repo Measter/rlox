@@ -155,7 +155,7 @@ impl Interpreter {
                     return Ok(obj);
                 }
             }
-            Statement::Print(expr) => {
+            Statement::Print { expr, .. } => {
                 self.evaluate_statement_print(*expr, emitter, interner, program)?
             }
             Statement::Return { value, .. } => {

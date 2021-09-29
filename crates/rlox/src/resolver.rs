@@ -158,7 +158,7 @@ impl<'a> Resolver<'a> {
 
                 self.resolve_class(*name, *superclass, methods)?;
             }
-            Statement::Expression(expr) | Statement::Print(expr) => {
+            Statement::Expression(expr) | Statement::Print { expr, .. } => {
                 self.resolve_expression(*expr)?
             }
             Statement::Function(func) => {

@@ -228,7 +228,10 @@ pub enum Statement {
         then_branch: StatementId,
         else_branch: Option<StatementId>,
     },
-    Print(ExpressionId),
+    Print {
+        keyword: Token,
+        expr: ExpressionId,
+    },
     Return {
         keyword: Token,
         value: Option<ExpressionId>,

@@ -419,12 +419,16 @@ impl<'collection, 'interner, 'program> Parser<'collection, 'interner, 'program> 
         Ok(Statement::Block { statements })
     }
 
-    fn print_statement(&mut self, _: Token) -> ParseResult<StatementId> {
+    fn print_statement(&mut self, keyword: Token) -> ParseResult<StatementId> {
         let value = self.expression()?;
         self.expect(TokenKind::SemiColon, "`;`", Vec::new)?;
-        Ok(self
-            .program
-            .add_statement(self.file_id, Statement::Print(value)))
+        Ok(self.program.add_statement(
+            self.file_id,
+            Statement::Print {
+                keyword,
+                expr: value,
+            },
+        ))
     }
 
     fn return_statement(&mut self, keyword: Token) -> ParseResult<StatementId> {
